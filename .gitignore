@@ -1,0 +1,21 @@
+# Compiled Lisp artifacts
+*.fasl
+*.dfsl
+*.fas
+*.lib
+
+# Nix build outputs
+/result
+/result-*
+
+# MkDocs rendered site (docs/mkdocs.yml writes to ./site)
+/site/
+
+# Editor/tool scratch output
+tmp/
+tmp-debug/
+
+# Serena project cache
+.serena/cache/
+
+.worktrees/
