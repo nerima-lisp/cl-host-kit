@@ -26,8 +26,10 @@ contract narrows, exactly how.
 | `uiop:delete-directory-tree` | `delete-directory-tree` | Identical: `:validate` and `:if-does-not-exist` are the only keywords any call site uses. |
 | `uiop:rename-file-overwriting-target` | `rename-file-overwriting-target` | Identical in observable behavior (atomic overwrite), built on `sb-posix:rename` (POSIX `rename(2)`) rather than `cl:rename-file`. |
 | `uiop:temporary-directory` | `temporary-directory` | Identical: zero arguments, honors `TMPDIR`. |
+| `uiop:call-with-temporary-file` | `call-with-temporary-file` | Compatible for temporary stream/pathname creation, naming, cleanup, and `:keep`/`:after` lifecycle hooks; adds bounded collision retries through `:attempts` (default 128). |
+| `uiop:with-temporary-file` | `with-temporary-file` | Compatible for `:stream`, `:pathname`, custom names, `:keep`, and `:close-stream`; forwards `:attempts`. |
 | `uiop:read-file-string` | `read-file-string` | Identical: one argument, whole file as a string. |
-| `uiop:split-string` | `split-string` | **Narrowed.** `:max` is accepted by uiop but used nowhere in the org, so it is not implemented. `:separator` accepts a list of characters or a string (each character an independent delimiter), matching every call site surveyed. |
+| `uiop:split-string` | `split-string` | Identical for the org's observed usage. `:separator` accepts a list of characters or a string (each character an independent delimiter), and `:max` is supported with the same capped-segmentation behavior as uiop. |
 | `uiop:string-prefix-p` | `string-prefix-p` | Identical. |
 
 ## Deliberately out of scope
@@ -42,8 +44,3 @@ API well beyond uiop's original scope.
 used it (`cl-cli`) only reaches it on non-SBCL implementations, which
 nerima-lisp does not support — the code path is unreachable dead code, not a
 real dependency to replace.
-
-**`uiop:with-temporary-file`** is not implemented in this release: every use
-of it across the org is in test code, not production `src/`, which was this
-release's scope. It is a natural candidate for a future release once a
-production call site needs it.

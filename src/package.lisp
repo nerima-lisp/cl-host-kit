@@ -17,10 +17,14 @@
    #:unsupported-implementation-feature
    ;; Environment and process lifecycle
    #:getenv
+   #:call-with-environment-variables
+   #:with-environment-variables
    #:quit
    ;; Working directory
    #:getcwd
    #:chdir
+   #:call-with-current-directory
+   #:with-current-directory
    ;; Pathname coercion and predicates
    #:absolute-pathname-p
    #:directory-pathname-p
@@ -37,7 +41,14 @@
    #:delete-directory-tree
    #:rename-file-overwriting-target
    #:temporary-directory
+   #:call-with-temporary-file
+   #:with-temporary-file
+   #:call-with-atomic-output-file
+   #:with-atomic-output-file
    #:read-file-string
+   #:write-file-string
+   #:read-file-octets
+   #:write-file-octets
    ;; Strings
    #:split-string
    #:string-prefix-p))

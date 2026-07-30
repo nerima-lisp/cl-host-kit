@@ -27,3 +27,22 @@
 (defun chdir (pathspec)
   (declare (ignore pathspec))
   (%unsupported 'chdir))
+
+(defun call-with-current-directory (pathspec thunk)
+  "Call THUNK with PATHSPEC as the process current directory.
+
+The original directory is restored during normal return, non-local exit, or
+error, including an error raised while changing to PATHSPEC."
+  (unless (functionp thunk)
+    (error "Current-directory scope thunk must be a function, got ~S" thunk))
+  (let ((original-directory (getcwd)))
+    (unwind-protect
+         (progn
+           (chdir pathspec)
+           (funcall thunk))
+      (chdir original-directory))))
+
+(defmacro with-current-directory ((pathspec) &body body)
+  "Run BODY with the process current directory set to PATHSPEC, restoring the
+previous directory during normal return, non-local exit, or error."
+  `(call-with-current-directory ,pathspec (lambda () ,@body)))

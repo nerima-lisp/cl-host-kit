@@ -2,10 +2,10 @@
 ;;;;
 ;;;; Two string helpers, scoped to exactly how the rest of nerima-lisp calls
 ;;;; them today (see the org-wide call-site survey in the design notes):
-;;;; SPLIT-STRING never receives a :MAX argument anywhere in the org, and its
-;;;; :SEPARATOR is always a bag of individual delimiter characters (a list of
-;;;; characters, or a string treated as one), never a multi-character
-;;;; delimiter sequence. STRING-PREFIX-P is the plain two-argument predicate.
+;;;; SPLIT-STRING accepts :MAX because upstream UIOP does, and its :SEPARATOR is
+;;;; always a bag of individual delimiter characters (a list of characters, or
+;;;; a string treated as one), never a multi-character delimiter sequence.
+;;;; STRING-PREFIX-P is the plain two-argument predicate.
 (in-package #:host-kit)
 
 (defun %separator-characters (separator)
@@ -14,19 +14,28 @@
     (string (coerce separator 'list))
     (character (list separator))))
 
-(defun split-string (string &key (separator '(#\Space)))
+(defun split-string (string &key (separator '(#\Space)) max)
   "Split STRING wherever any character in SEPARATOR (a list of characters, a
-string of characters, or a single character) appears, treating each
-separator character as an independent one-character delimiter. Consecutive
-separator characters produce empty-string segments between them, matching
-the behavior response-file and line-oriented callers in this org rely on."
+  string of characters, or a single character) appears, treating each
+  separator character as an independent one-character delimiter. Consecutive
+  separator characters produce empty-string segments between them, matching the
+  behavior response-file and line-oriented callers in this org rely on.
+
+When MAX is supplied, split at most CEILING(MAX) - 1 times and keep the
+remaining substring as the final segment."
   (let ((separator-characters (%separator-characters separator))
         (segments nil)
-        (start 0))
+        (start 0)
+        (remaining-splits (and max (max 0 (1- (ceiling max))))))
     (loop for index from 0 below (length string)
           when (member (char string index) separator-characters :test #'char=)
-            do (push (subseq string start index) segments)
-               (setf start (1+ index)))
+            do (when (or (null remaining-splits) (plusp remaining-splits))
+                 (push (subseq string start index) segments)
+                 (setf start (1+ index))
+                 (when remaining-splits
+                   (decf remaining-splits)
+                   (when (zerop remaining-splits)
+                     (return)))))
     (push (subseq string start) segments)
     (nreverse segments)))
 

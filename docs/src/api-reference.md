@@ -27,6 +27,12 @@ single source of truth for what is exported).
   a string, or `NIL` if unset.
 - **`(setf (getenv name) value)`** — Set `name` to `value` (a string); a
   `value` of `NIL` unsets it instead.
+- **`(call-with-environment-variables bindings thunk)`** — CPS primitive for
+  applying `(name value)` pairs while calling `thunk`; restores every original
+  value in reverse order after return or failure.
+- **`(with-environment-variables ((name value) ...) &body body)`** — Bind
+  macro wrapper around `call-with-environment-variables` that evaluates each
+  binding form once.
 - **`(quit &optional (code 0))`** — Terminate the current process with
   `code`. Never returns.
 
@@ -38,6 +44,10 @@ single source of truth for what is exported).
   pathname.
 - **`(chdir pathspec)`** — Change the current working directory to
   `pathspec` (a pathname designator).
+- **`(call-with-current-directory pathspec thunk)`** — CPS primitive that
+  calls `thunk` after changing to `pathspec`, then restores the directory.
+- **`(with-current-directory (pathspec) &body body)`** — Run `body` with
+  `pathspec` as the current directory through the CPS primitive.
 
 ## Pathnames
 
@@ -79,8 +89,28 @@ single source of truth for what is exported).
   `target`, atomically replacing `target` if it exists.
 - **`(temporary-directory)`** — Return the system temporary directory,
   honoring `TMPDIR`.
+- **`(call-with-temporary-file thunk &key ... attempts)`** — Create a unique
+  temporary file, retrying exclusive creation after name collisions up to
+  `attempts` (default 128), invoke `thunk` with the requested stream and/or
+  pathname, then delete the file unless `:keep` is true.
+- **`(with-temporary-file (&key stream pathname directory prefix suffix type keep attempts ...) &body body)`**
+  — Bind a temporary file stream and/or pathname for `body`. Place
+  `:close-stream` in `body` to run subsequent forms after closing the stream.
 - **`(read-file-string pathspec)`** — Return the entire contents of the file
   `pathspec` as a string.
+- **`(call-with-atomic-output-file target thunk &key element-type external-format)`**
+  — Call `thunk` with an output stream backed by a temporary file in the target
+  directory. After a successful callback, close and atomically replace the
+  target; on failure, leave any existing target unchanged and remove the
+  temporary file.
+- **`(with-atomic-output-file (stream target &key element-type external-format) ...)`**
+  — Lexically bind `stream` for an atomic output operation.
+- **`(write-file-string string pathspec &key external-format)`** — Atomically
+  write `string` to `pathspec` and return its absolute pathname.
+- **`(read-file-octets pathspec)`** — Return the entire contents of `pathspec`
+  as a vector of `(unsigned-byte 8)`.
+- **`(write-file-octets octets pathspec)`** — Atomically write an
+  `(unsigned-byte 8)` array to `pathspec` and return its absolute pathname.
 
 ## Strings
 

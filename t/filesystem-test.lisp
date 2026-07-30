@@ -45,7 +45,7 @@ without touching anything outside of it."
              (with-open-file (stream file :direction :output :if-exists :supersede)
                (write-string "x" stream))
              (expect (directory-exists-p file) :to-be nil))
-        (delete-directory-tree scratch :if-does-not-exist :ignore)))))
+        (delete-directory-tree scratch :if-does-not-exist :ignore))))
 
 (describe "directory-files / subdirectories"
   (it "directory-files lists only the regular files, non-recursively"
@@ -95,8 +95,15 @@ without touching anything outside of it."
             :to-be nil))
 
   (it "VALIDATE T rejects a pathname that is not directory-form"
-    (signals host-operation-failed
-      (delete-directory-tree "/tmp/cl-host-kit-not-a-directory.txt" :validate t))))
+    (let ((scratch (%make-scratch-directory)))
+      (unwind-protect
+           (let ((file (merge-pathnames "not-a-directory.txt" scratch)))
+             (with-open-file (s file :direction :output :if-exists :supersede)
+               (write-string "x" s))
+             (signals host-operation-failed
+               (delete-directory-tree file :validate t))
+             (expect (file-exists-p file) :to-be-truthy))
+        (delete-directory-tree scratch :if-does-not-exist :ignore)))))
 
 (describe "rename-file-overwriting-target"
   (it "atomically overwrites an existing target"
@@ -126,6 +133,116 @@ without touching anything outside of it."
         (setf (getenv "TMPDIR") nil)
         (delete-directory-tree scratch :if-does-not-exist :ignore)))))
 
+(describe "with-temporary-file / call-with-temporary-file"
+  (it "writes through the stream and deletes the file after the scope"
+    (let (temporary-pathname)
+      (expect (with-temporary-file (:stream stream :pathname pathname)
+                (write-string "temporary contents" stream)
+                :close-stream
+                (setf temporary-pathname pathname)
+                (read-file-string pathname))
+              :to-equal "temporary contents")
+      (expect (file-exists-p temporary-pathname) :to-be nil)))
+
+  (it "supports pathname-only scopes and caller-controlled names"
+    (let ((scratch (%make-scratch-directory)))
+      (unwind-protect
+           (with-temporary-file (:pathname pathname
+                                 :directory scratch
+                                 :prefix "host-kit-"
+                                 :suffix ".data"
+                                 :type :unspecific)
+             (expect (file-exists-p pathname) :to-be-truthy)
+             (expect (string-prefix-p "host-kit-" (file-namestring pathname))
+                     :to-be-truthy)
+             (expect (search ".data" (file-namestring pathname)) :to-be-truthy))
+        (delete-directory-tree scratch :if-does-not-exist :ignore))))
+
+  (it "keeps the file only when KEEP evaluates true"
+    (let (temporary-pathname)
+      (unwind-protect
+           (progn
+             (with-temporary-file (:pathname pathname :keep t)
+               (setf temporary-pathname pathname))
+             (expect (file-exists-p temporary-pathname) :to-be-truthy))
+        (when temporary-pathname
+          (ignore-errors (delete-file temporary-pathname))))))
+
+  (it "deletes a file when the body signals an error"
+    (let (temporary-pathname)
+      (signals error
+        (with-temporary-file (:pathname pathname)
+          (setf temporary-pathname pathname)
+          (error "temporary-file test failure")))
+      (expect (file-exists-p temporary-pathname) :to-be nil)))
+
+  (it "passes the requested stream and pathname to CALL-WITH-TEMPORARY-FILE"
+    (let (temporary-pathname)
+      (expect (call-with-temporary-file
+               (lambda (stream pathname)
+                 (setf temporary-pathname pathname)
+                 (write-string "call helper" stream)
+                 pathname))
+              :to-equal temporary-pathname)
+      (expect (file-exists-p temporary-pathname) :to-be nil))))
+
+  (it "runs AFTER after closing the temporary file stream"
+    (let (temporary-pathname)
+      (expect (call-with-temporary-file
+               (lambda (stream pathname)
+                 (declare (ignore pathname))
+                 (write-string "after hook" stream))
+               :after (lambda (pathname)
+                        (setf temporary-pathname pathname)
+                        (read-file-string pathname)))
+              :to-equal "after hook")
+      (expect (file-exists-p temporary-pathname) :to-be nil)))
+
+  (it "retries a colliding exclusive-create name"
+    (let ((scratch (%make-scratch-directory))
+          (state (make-random-state t)))
+      (unwind-protect
+           (let* ((counter (let ((*random-state* (make-random-state state)))
+                             (random (expt 36 8))))
+                  (collision (merge-pathnames (format nil "collision-~36R" counter) scratch))
+                  created-pathname)
+             (with-open-file (stream collision :direction :output :if-exists :error)
+               (write-string "already allocated" stream))
+             (let ((*random-state* (make-random-state state)))
+               (call-with-temporary-file
+                (lambda (pathname)
+                  (setf created-pathname pathname))
+                :want-stream-p nil
+                :directory scratch
+                :prefix "collision-"
+                :suffix nil
+                :type :unspecific
+                :attempts 2))
+             (expect created-pathname :not :to-equal collision)
+             (expect (file-exists-p collision) :to-be-truthy)
+             (expect (file-exists-p created-pathname) :to-be nil))
+        (delete-directory-tree scratch :if-does-not-exist :ignore))))
+
+  (it "signals a structured failure when collision retries are exhausted"
+    (let ((scratch (%make-scratch-directory))
+          (state (make-random-state t)))
+      (unwind-protect
+           (let* ((counter (let ((*random-state* (make-random-state state)))
+                             (random (expt 36 8))))
+                  (collision (merge-pathnames (format nil "collision-~36R" counter) scratch)))
+             (with-open-file (stream collision :direction :output :if-exists :error)
+               (write-string "already allocated" stream))
+             (let ((*random-state* (make-random-state state)))
+               (signals host-operation-failed
+                 (call-with-temporary-file nil
+                                           :directory scratch
+                                           :prefix "collision-"
+                                           :suffix nil
+                                           :type :unspecific
+                                           :attempts 1)))
+             (expect (file-exists-p collision) :to-be-truthy))
+        (delete-directory-tree scratch :if-does-not-exist :ignore)))))
+
 (describe "read-file-string"
   (it "returns the entire file contents as a string"
     (let ((scratch (%make-scratch-directory)))
@@ -139,3 +256,86 @@ without touching anything outside of it."
   (it "signals HOST-OPERATION-FAILED for a missing file"
     (signals host-operation-failed
       (read-file-string "/definitely/does/not/exist/cl-host-kit-xyz.txt"))))
+
+(describe "octet files"
+  (it "writes and reads octets atomically"
+    (let* ((directory (%make-scratch-directory))
+           (target (merge-pathnames "bytes.bin" directory))
+           (octets (make-array 4
+                               :element-type '(unsigned-byte 8)
+                               :initial-contents '(0 1 127 255))))
+      (unwind-protect
+           (progn
+             (expect (write-file-octets octets target)
+                     :to-equal
+                     (ensure-absolute-pathname target))
+             (expect (coerce (read-file-octets target) 'list)
+                     :to-equal
+                     '(0 1 127 255)))
+        (delete-directory-tree directory))))
+
+  (it "signals HOST-OPERATION-FAILED for a missing file"
+    (signals host-operation-failed
+      (read-file-octets "/definitely/does/not/exist/cl-host-kit-xyz.bin"))))
+
+(describe "atomic output files"
+  (it "replaces a target after closing the temporary output stream"
+    (let* ((directory (%make-scratch-directory))
+           (target (merge-pathnames "published.txt" directory)))
+      (unwind-protect
+           (progn
+             (with-open-file (stream target :direction :output
+                                            :if-exists :supersede)
+               (write-string "old" stream))
+             (expect
+              (multiple-value-list
+               (call-with-atomic-output-file
+                target
+                (lambda (stream)
+                  (write-string "new" stream)
+                  (values :first :second))))
+              :to-equal
+              '(:first :second))
+             (expect (read-file-string target) :to-equal "new"))
+        (delete-directory-tree directory))))
+
+  (it "leaves an existing target unchanged when the writer fails"
+    (let* ((directory (%make-scratch-directory))
+           (target (merge-pathnames "published.txt" directory)))
+      (unwind-protect
+           (progn
+             (with-open-file (stream target :direction :output
+                                            :if-exists :supersede)
+               (write-string "old" stream))
+             (signals error
+               (call-with-atomic-output-file
+                target
+                (lambda (stream)
+                  (write-string "new" stream)
+                  (error "writer failed"))))
+             (expect (read-file-string target) :to-equal "old")
+             (let ((files (directory-files directory)))
+               (expect (length files) :to-equal 1)
+               (expect (file-namestring (first files))
+                       :to-equal
+                       "published.txt")))
+        (delete-directory-tree directory))))
+
+  (it "provides a lexical output-stream macro"
+    (let* ((directory (%make-scratch-directory))
+           (target (merge-pathnames "macro.txt" directory)))
+      (unwind-protect
+           (progn
+             (with-atomic-output-file (stream target)
+               (write-string "macro" stream))
+             (expect (read-file-string target) :to-equal "macro"))
+        (delete-directory-tree directory))))
+
+  (it "writes strings atomically and returns an absolute pathname"
+    (let* ((directory (%make-scratch-directory))
+           (target (merge-pathnames "string.txt" directory)))
+      (unwind-protect
+           (let ((result (write-file-string "contents" target)))
+             (expect result :to-equal (ensure-absolute-pathname target))
+             (expect (read-file-string target) :to-equal "contents"))
+        (delete-directory-tree directory)))))

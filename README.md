@@ -6,7 +6,7 @@
 
 A dependency-free host-environment toolkit for Common Lisp: pathname
 coercion and predicates, filesystem existence checks and non-recursive
-listing, a temporary directory, environment-variable read/write, and the
+listing, temporary files and directories, environment-variable read/write, and the
 string helpers that go with them. It replaces the corner of `uiop` that
 nerima-lisp's own code actually calls, with SBCL's `sb-posix` as the only
 implementation dependency.
@@ -38,10 +38,19 @@ implementation — see
 (host-kit:file-exists-p "README.md")            ; => #P".../README.md" or NIL
 (host-kit:directory-files "src/")               ; => list of file pathnames
 (host-kit:read-file-string "README.md")         ; => the whole file as a string
+(host-kit:with-temporary-file (:stream stream :pathname pathname)
+  (write-string "generated data" stream)
+  :close-stream
+  (host-kit:read-file-string pathname))          ; => "generated data"
 (host-kit:split-string "a,b,,c" :separator ",") ; => ("a" "b" "" "c")
+(host-kit:split-string "a,b,c,d" :separator "," :max 3)
+; => ("a" "b" "c,d")
 
 (setf (host-kit:getenv "MY_VAR") "1")           ; set
 (setf (host-kit:getenv "MY_VAR") nil)           ; unset
+
+(host-kit:with-environment-variables (("LOG_LEVEL" "debug"))
+  (host-kit:getenv "LOG_LEVEL"))                 ; => "debug", then restored
 ```
 
 Every function that touches the OS wraps its failure in a structured

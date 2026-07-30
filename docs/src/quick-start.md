@@ -25,6 +25,16 @@
 (host-kit:subdirectories ".")               ; => list of directory pathnames
 (host-kit:read-file-string "README.md")     ; => the whole file as a string
 (host-kit:temporary-directory)              ; => #P"/tmp/"
+(host-kit:with-temporary-file (:stream stream :pathname pathname)
+  (write-string "generated data" stream)
+  :close-stream
+  (host-kit:read-file-string pathname))     ; => "generated data"
+(host-kit:write-file-string "finished output" #P"/tmp/result.txt")
+                                             ; => #P"/tmp/result.txt"
+(host-kit:write-file-octets
+ (make-array 3 :element-type '(unsigned-byte 8) :initial-contents '(1 2 3))
+ #P"/tmp/payload.bin")
+(host-kit:read-file-octets #P"/tmp/payload.bin") ; => #(1 2 3)
 
 ;; Strings.
 (host-kit:split-string "a,b,,c" :separator ",")  ; => ("a" "b" "" "c")
