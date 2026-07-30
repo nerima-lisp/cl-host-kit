@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1]
+
+### Changed
+
+- `docs/src/api-reference.md`'s "Program execution" section still cited only
+  `src/process.lisp`, unlike the "Filesystem" section's already-correct
+  multi-file breakdown. Updated it to name `process-result.lisp` and
+  `process-io.lisp` alongside `process.lisp`, matching the split from 0.2.0's
+  `process.lisp` refactor. `docs/src/installation.md`'s pinned flake input
+  example now points at the `v0.2.1` tag.
+- `docs/src/changelog.md` had not been updated since the `0.1.0` release: it
+  still labelled that release's entries `[Unreleased]` and was missing the
+  entire `[0.2.0]` section, despite its own header claiming to mirror this
+  file. Resynced its content with `CHANGELOG.md`.
+
 ## [0.2.0]
 
 ### Fixed

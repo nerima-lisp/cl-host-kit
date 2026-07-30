@@ -108,7 +108,11 @@ absolute, non-empty environment value.
 
 ## Program execution
 
-`src/process.lisp`
+Implementation is separated by responsibility: `src/process-result.lisp` for
+the `process-result` data model and exit-code validation;
+`src/process-io.lisp` for the concurrent stdout/stderr capture and stdin
+production engine; and `src/process.lisp` for `run-program` and its `WITH-X`
+scope macros.
 
 - **`+default-command-timeout-seconds+`** — The default `run-program` deadline:
   30 seconds.
