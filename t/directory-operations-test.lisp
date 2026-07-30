@@ -478,7 +478,6 @@
           (expect (read-file-string (merge-pathnames "entry.txt" tree)) :to-equal "data")
           (expect (delete-path tree :recursive t) :to-be-truthy)
           (expect (path-exists-p tree) :to-be nil))))
-    #+sbcl
   (it "unlinks directory and dangling symbolic links without touching targets"
     (with-scratch-directory
       (scratch)
@@ -545,7 +544,6 @@
           host-operation-failed
           (delete-directory-tree file :if-does-not-exist :ignore))
         (expect (file-exists-p file) :to-be-truthy))))
-  #+sbcl
   (it "rejects a directory link without traversing its target"
     (with-scratch-directory (scratch)
       (let ((target (merge-pathnames "protected/" scratch))
@@ -636,7 +634,6 @@
         (expect (path-exists-p source) :to-be nil)
         (expect (symbolic-link-p target) :to-be-truthy)
         (expect (read-symbolic-link target) :to-equal "missing.txt"))))
-  #+sbcl
   (progn
     (it
       "falls back to a staged copy after EXDEV and replaces an explicit target"

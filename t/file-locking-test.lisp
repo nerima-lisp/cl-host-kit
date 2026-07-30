@@ -1,7 +1,6 @@
 ;;;; t/file-locking-test.lisp
 (in-package #:cl-host-kit/test)
 
-#+sbcl
 (defun %child-lock-exit-code (pathspec)
   (let* ((program (namestring sb-ext:*runtime-pathname*))
          (form (format nil
@@ -22,7 +21,6 @@
                         "--eval" form)
                   :timeout 10))))
 
-#+sbcl
 (defun %start-lock-holder (pathspec ready-pathspec)
   (let* ((program (namestring sb-ext:*runtime-pathname*))
          (form (format nil
@@ -42,7 +40,6 @@
                         :output nil
                         :error nil)))
 
-#+sbcl
 (defun %wait-for-lock-holder (ready-pathspec)
   (let ((deadline (+ (get-internal-real-time)
                      internal-time-units-per-second)))
@@ -53,7 +50,6 @@
         (error "Lock holder did not become ready."))
       (sleep 0.01d0))))
 
-#+sbcl
 (defun %same-process-lock-conflict-outcome (pathspec &key (wait t) timeout)
   (let ((attempted (sb-thread:make-semaphore :count 0))
         (outcome nil)
@@ -82,7 +78,6 @@
       (when worker
         (sb-thread:join-thread worker)))))
 
-#+sbcl
 (describe "call-with-advisory-file-lock / with-advisory-file-lock"
   (it "preserves all callback values and binds the locked stream"
     (with-scratch-directory (scratch)
@@ -260,7 +255,6 @@
              stream)))
          (expect (%child-lock-exit-code target) :to-equal 0)))))
 
-#+sbcl
 (describe "call-with-file-lock / with-file-lock"
   (it "creates, locks, and closes a pathname-scoped stream"
     (with-scratch-directory (scratch)

@@ -1,7 +1,6 @@
 ;;;; t/filesystem-metadata-test.lisp
 (in-package #:cl-host-kit/test)
 
-#+sbcl
 (describe "file-metadata / symbolic links"
   (it "distinguishes a link from its regular-file target"
     (with-scratch-directory (scratch)
@@ -126,7 +125,6 @@
         (signals host-operation-failed
           (read-symbolic-link file))))))
 
-#+sbcl
 (describe "set-file-mode"
   (it "updates a file's permission bits and returns its absolute pathname"
     (with-scratch-directory (scratch)
@@ -153,7 +151,6 @@
         (signals type-error (set-file-mode missing #o10000))
         (signals host-operation-failed (set-file-mode missing #o600))))))
 
-#+sbcl
 (describe "set-file-owner"
   (it "preserves omitted IDs, accepts both IDs, and follows symbolic links"
     (with-scratch-directory (scratch)
@@ -188,7 +185,6 @@
         (signals type-error (set-file-owner file :group-id :invalid))
         (signals host-operation-failed (set-file-owner missing :owner-id 0))))))
 
-#+sbcl
 (describe "set-file-times"
   (it "updates both timestamps using Common Lisp universal times"
     (with-scratch-directory (scratch)
@@ -307,7 +303,6 @@
         :to-be
         nil))))
 
-#+sbcl
 (describe "file-executable-p"
   (it "returns the truename only for executable non-directory files"
     (with-scratch-directory (scratch)
@@ -325,7 +320,6 @@
         (expect (file-executable-p scratch) :to-be nil)
         (expect (file-executable-p (merge-pathnames "missing" scratch)) :to-be nil)))))
 
-#+sbcl
 (describe "file-readable-p / file-writable-p"
   (it "return resolved truenames for regular files and symbolic links"
     (with-scratch-directory (scratch)
@@ -359,7 +353,6 @@
                (expect (file-executable-p file) :to-be nil))
           (sb-posix:chmod (namestring file) #o600))))))
 
-#+sbcl
 (describe "same-file-p"
   (it "identifies hard links and resolved symbolic links"
     (with-scratch-directory (scratch)
@@ -445,7 +438,6 @@
           (expect (file-exists-p file) :to-be nil))))))
 
 (progn
-  #+sbcl
   (describe "path-exists-p"
     (it "recognizes files, directories, and live symbolic links"
       (with-scratch-directory (scratch)

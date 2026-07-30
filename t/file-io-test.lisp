@@ -321,7 +321,6 @@
         (expect (mapcar #'file-namestring (directory-files scratch))
                 :to-equal
                 '("target.txt")))))
-  #+sbcl
   (it "preserves an existing target's access permission bits"
     (with-scratch-directory (scratch)
       (let ((target (merge-pathnames "protected.txt" scratch)))
@@ -332,7 +331,6 @@
                         (sb-posix:stat-mode (sb-posix:stat (namestring target))))
                 :to-equal #o640)
         (expect (read-file-string target) :to-equal "new"))))
-  #+sbcl
   (it "synchronizes the replacement and containing directory when requested"
     (with-scratch-directory (scratch)
       (let ((target (merge-pathnames "durable.txt" scratch)))
@@ -470,7 +468,6 @@
           (expect (aref copied 0) :to-equal 42)
           (expect (aref copied 65535) :to-equal 42)
           (expect (aref copied 65536) :to-equal 255)))))
-  #+sbcl
   (it
     "copies symbolic links exactly only when requested"
     (with-scratch-directory
@@ -496,7 +493,6 @@
                    :if-exists :supersede)
         (expect (symbolic-link-p replaced-link) :to-be-truthy)
         (expect (read-symbolic-link replaced-link) :to-equal "missing-relative-target"))))
-  #+sbcl
   (it
     "preserves mode and timestamps when creating a new copy"
     (with-scratch-directory
@@ -549,7 +545,6 @@
          :to-equal
          (ensure-absolute-pathname target))
         (expect (coerce (read-file-octets target) 'list) :to-equal '(1)))))
-  #+sbcl
   (it
     "refuses to copy over the same file through direct, hard, and symbolic paths"
     (with-scratch-directory
@@ -585,7 +580,6 @@
             (target (merge-pathnames "target.bin" scratch)))
         (signals host-operation-failed (copy-file source target))
         (expect (path-exists-p target) :to-be nil))
-      #+sbcl
       (let ((source (merge-pathnames "source-fifo" scratch))
             (target (merge-pathnames "fifo-target" scratch)))
         (sb-posix:mkfifo (namestring source) #o600)
@@ -605,7 +599,6 @@
             (make-array 3 :element-type '(unsigned-byte 8) :initial-contents '(4 5 255))))
         (ensure-directory-tree empty)
         (write-file-octets octets payload)
-        #+sbcl
         (progn
           (set-file-mode source #o750)
           (set-file-mode nested #o750)
@@ -627,7 +620,6 @@
           (read-symbolic-link (merge-pathnames "missing-link" target))
           :to-equal
           "does-not-exist")
-        #+sbcl
           (expect (file-metadata-mode
                    (file-metadata (merge-pathnames "nested/payload.bin" target)))
                   :to-equal #o640))))
@@ -724,7 +716,6 @@
         (expect (read-file-string (merge-pathnames "file.txt" target))
                 :to-equal
                 "payload"))))
-  #+sbcl
   (it
     "preserves a broken symbolic link and rejects special entries"
     (with-scratch-directory
@@ -761,7 +752,6 @@
         (expect signalled-p :to-be-truthy)
         (expect (read-file-string target) :to-equal "old")))))
 
-#+sbcl
 (describe
   "copy-directory-tree failure cleanup"
   (it
