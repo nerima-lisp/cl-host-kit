@@ -4,7 +4,6 @@
 ;;;; and destructive operations live in directory-operations.lisp.
 (in-package #:host-kit)
 
-#+sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :sb-posix))
 
@@ -29,15 +28,12 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
   (owner-id 0 :type (integer 0 *) :read-only t)
   (group-id 0 :type (integer 0 *) :read-only t))
 
-#+sbcl
 (defun %unix-time->universal-time (unix-time)
   (+ +unix-epoch-universal-time+ unix-time))
 
-#+sbcl
 (defun %universal-time->unix-time (universal-time)
   (- universal-time +unix-epoch-universal-time+))
 
-#+sbcl
 (defun %file-kind (mode)
   (cond ((sb-posix:s-isreg mode) :regular-file)
         ((sb-posix:s-isdir mode) :directory)
@@ -48,7 +44,6 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
         ((sb-posix:s-issock mode) :socket)
         (t :unknown)))
 
-#+sbcl
 (defun %metadata-from-stat (stat)
   (let ((mode (sb-posix:stat-mode stat)))
     (%make-file-metadata
@@ -64,7 +59,6 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
        :owner-id (sb-posix:stat-uid stat)
        :group-id (sb-posix:stat-gid stat))))
 
-#+sbcl
 (defun file-metadata (pathspec &key (follow-symlinks t))
   "Return immutable FILE-METADATA for PATHSPEC.
 When FOLLOW-SYMLINKS is true (the default), inspect the link target. When it
@@ -78,12 +72,6 @@ be observed. Missing paths and invalid links signal HOST-OPERATION-FAILED."
            (sb-posix:stat (namestring pathname))
            (sb-posix:lstat (namestring pathname)))))))
 
-#-sbcl
-(defun file-metadata (pathspec &key (follow-symlinks t))
-  (declare (ignore pathspec follow-symlinks))
-  (%unsupported 'file-metadata))
-
-#+sbcl
 (defun symbolic-link-p (pathspec)
   "Return true when PATHSPEC is a symbolic link, including a broken link.
 Missing paths signal HOST-OPERATION-FAILED rather than being treated as links."
@@ -92,12 +80,6 @@ Missing paths signal HOST-OPERATION-FAILED rather than being treated as links."
       (sb-posix:s-islnk
        (sb-posix:stat-mode (sb-posix:lstat (namestring pathname)))))))
 
-#-sbcl
-(defun symbolic-link-p (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported 'symbolic-link-p))
-
-#+sbcl
 (defun read-symbolic-link (pathspec)
   "Return PATHSPEC's raw symbolic-link target as a string.
 Relative targets remain relative to the link's containing directory. A missing
@@ -106,12 +88,6 @@ path or a path that is not a symbolic link signals HOST-OPERATION-FAILED."
     (%with-host-operation (:read-symbolic-link pathname)
       (sb-posix:readlink (namestring pathname)))))
 
-#-sbcl
-(defun read-symbolic-link (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported 'read-symbolic-link))
-
-#+sbcl
 (defun create-symbolic-link (target link-pathspec)
   "Create LINK-PATHSPEC as a symbolic link to TARGET and return its absolute pathname.
 TARGET may be a string or pathname. A string is stored without normalization,
@@ -124,12 +100,6 @@ Existing destination entries are never replaced."
       (sb-posix:symlink target-namestring (namestring link)))
     link))
 
-#-sbcl
-(defun create-symbolic-link (target link-pathspec)
-  (declare (ignore target link-pathspec))
-  (%unsupported 'create-symbolic-link))
-
-#+sbcl
 (defun create-hard-link (source link-pathspec)
   "Create LINK-PATHSPEC as a hard link to SOURCE and return its absolute pathname.
 Existing destination entries are never replaced. SOURCE and LINK-PATHSPEC must
@@ -140,12 +110,6 @@ reside on the same filesystem, as required by POSIX."
       (sb-posix:link (namestring source) (namestring link)))
     link))
 
-#-sbcl
-(defun create-hard-link (source link-pathspec)
-  (declare (ignore source link-pathspec))
-  (%unsupported 'create-hard-link))
-
-#+sbcl
 (defun set-file-mode (pathspec mode)
   "Set PATHSPEC's POSIX permission and special mode bits, returning its absolute pathname.
 MODE is an integer from 0 through #o7777. Symbolic links are resolved, matching
@@ -156,12 +120,6 @@ POSIX CHMOD semantics."
       (sb-posix:chmod (namestring pathname) mode))
     pathname))
 
-#-sbcl
-(defun set-file-mode (pathspec mode)
-  (declare (ignore pathspec mode))
-  (%unsupported 'set-file-mode))
-
-#+sbcl
 (defun set-file-owner (pathspec &key (owner-id nil owner-id-p) (group-id nil group-id-p))
   "Set PATHSPEC owner and group IDs, returning its absolute pathname.
 At least one of OWNER-ID and GROUP-ID must be supplied as a non-negative integer.
@@ -185,12 +143,6 @@ POSIX CHOWN semantics."
                             (file-metadata-group-id metadata)))))
     pathname))
 
-#-sbcl
-(defun set-file-owner (pathspec &key owner-id group-id)
-  (declare (ignore pathspec owner-id group-id))
-  (%unsupported (quote set-file-owner)))
-
-#+sbcl
 (defun set-file-times (pathspec &key (access-time nil access-time-p)
                                 (modification-time nil modification-time-p))
   "Set PATHSPEC access and modification times, returning its absolute pathname.
@@ -218,13 +170,7 @@ time. Symbolic links are resolved, matching POSIX UTIME semantics."
           (sb-posix:utime (namestring pathname))))
     pathname))
 
-#-sbcl
-(defun set-file-times (pathspec &key access-time modification-time)
-  (declare (ignore pathspec access-time modification-time))
-  (%unsupported 'set-file-times))
-
 (progn
-  #+sbcl
   (defun path-exists-p (pathspec)
     "Return true when PATHSPEC names a directory entry without resolving links.
 A missing entry or a path below a non-directory component returns NIL; a dangling
@@ -239,11 +185,7 @@ symbolic link returns true."
             (if (member (sb-posix:syscall-errno condition)
                         (list sb-posix:enoent sb-posix:enotdir))
                 nil
-                (error condition)))))))
-  #-sbcl
-  (defun path-exists-p (pathspec)
-    (declare (ignore pathspec))
-    (%unsupported (quote path-exists-p))))
+                (error condition))))))))
 
 (defun file-exists-p (pathspec)
   "Return the truename of PATHSPEC if it exists and is not a directory, else
@@ -257,7 +199,6 @@ NIL."
   (let ((truename (probe-file pathspec)))
     (when (and truename (directory-pathname-p truename)) truename)))
 
-#+sbcl
 (defun same-file-p (left right)
   "Return true when LEFT and RIGHT resolve to the same filesystem object.
 
@@ -270,7 +211,6 @@ HOST-OPERATION-FAILED."
          (= (file-metadata-inode left-metadata)
             (file-metadata-inode right-metadata)))))
 
-#+sbcl
 (defun %file-accessible-p (pathspec access-mode)
   (let ((pathname (file-exists-p pathspec)))
     (and pathname
@@ -279,49 +219,25 @@ HOST-OPERATION-FAILED."
            (error () nil))
          pathname)))
 
-#+sbcl
 (defun file-readable-p (pathspec)
   "Return the resolved truename of a readable non-directory PATHSPEC.
 Return NIL when PATHSPEC is missing, denotes a directory, or is not readable
 by the calling process. Symbolic links are resolved before checking access."
   (%file-accessible-p pathspec sb-posix:r-ok))
 
-#+sbcl
 (defun file-writable-p (pathspec)
   "Return the resolved truename of a writable non-directory PATHSPEC.
 Return NIL when PATHSPEC is missing, denotes a directory, or is not writable
 by the calling process. Symbolic links are resolved before checking access."
   (%file-accessible-p pathspec sb-posix:w-ok))
 
-#+sbcl
 (defun file-executable-p (pathspec)
   "Return the resolved truename of an executable non-directory PATHSPEC.
 Return NIL when PATHSPEC is missing, denotes a directory, or is not executable
 by the calling process. Symbolic links are resolved before checking access."
   (%file-accessible-p pathspec sb-posix:x-ok))
 
-#-sbcl
-(defun file-readable-p (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported (quote file-readable-p)))
-
-#-sbcl
-(defun file-writable-p (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported (quote file-writable-p)))
-
-#-sbcl
-(defun file-executable-p (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported (quote file-executable-p)))
-
-#-sbcl
-(defun same-file-p (left right)
-  (declare (ignore left right))
-  (%unsupported (quote same-file-p)))
-
 (progn
-  #+sbcl
   (defun touch-file (pathspec &key (access-time nil access-time-p)
                                   (modification-time nil modification-time-p))
     "Create PATHSPEC when absent, update its timestamps, and return its absolute pathname.
@@ -355,9 +271,4 @@ link, signals HOST-OPERATION-FAILED."
            (set-file-times pathname :modification-time modification-time))
           (t
            (set-file-times pathname)))
-        pathname)))
-
-  #-sbcl
-  (defun touch-file (pathspec &key access-time modification-time)
-    (declare (ignore pathspec access-time modification-time))
-    (%unsupported (quote touch-file))))
+        pathname))))

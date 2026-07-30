@@ -3,14 +3,12 @@
 ;;;; Scoped, cooperative POSIX file locking for SBCL file-descriptor streams.
 (in-package #:host-kit)
 
-#+sbcl
 (defun %advisory-file-lock-fd (stream)
   (check-type stream sb-sys:fd-stream)
   (unless (open-stream-p stream)
     (error 'type-error :datum stream :expected-type 'open-stream))
     (sb-sys:fd-stream-fd stream))
 
-#+sbcl
 (defstruct (%held-advisory-file-lock
             (:constructor %make-held-advisory-file-lock))
   identity
@@ -19,27 +17,22 @@
   mode
   owners)
 
-#+sbcl
 (defvar *held-advisory-file-locks* nil
   "Process-wide file locks reserved by active HOST-KIT lock scopes.")
 
-#+sbcl
 (defvar *advisory-file-locks-lock*
   (sb-thread:make-mutex :name "host-kit advisory file locks"))
 
-#+sbcl
 (defun %advisory-file-lock-identity (fd)
   "Return the stable filesystem identity associated with FD."
   (let ((stat (sb-posix:fstat fd)))
     (cons (sb-posix:stat-dev stat)
           (sb-posix:stat-ino stat))))
 
-#+sbcl
 (defun %conflicting-file-lock-p (condition)
   (member (sb-posix:syscall-errno condition)
           (list sb-posix:eacces sb-posix:eagain)))
 
-#+sbcl
 (progn
   (defun %advisory-file-lock-deadline (timeout)
     (and timeout
@@ -102,7 +95,6 @@
             (:wait
              (sleep 0.01d0))))))))
 
-#+sbcl
 (defun %release-advisory-file-lock-reservation (identity fd)
   (let ((owner sb-thread:*current-thread*))
     (sb-thread:with-mutex (*advisory-file-locks-lock*)
@@ -121,14 +113,12 @@
                   (delete held-lock *held-advisory-file-locks*))
             t))))))
 
-#+sbcl
 (defun %remaining-advisory-file-lock-timeout (deadline)
   (and deadline
        (max 0d0
             (/ (- deadline (get-internal-real-time))
                internal-time-units-per-second))))
 
-#+sbcl
 (defun %make-advisory-file-lock (mode lock-start)
   (make-instance 'sb-posix:flock
                  :type (ecase mode
@@ -138,7 +128,6 @@
                  :start lock-start
                  :len 0))
 
-#+sbcl
 (defun %acquire-advisory-file-lock (fd wait timeout
                                     &optional reported-timeout
                                       (mode :exclusive)
@@ -162,7 +151,6 @@
              (error 'file-lock-timeout :seconds (or reported-timeout timeout)))
            (sleep 0.01d0)))))))
 
-#+sbcl
 (defun %release-advisory-file-lock (fd lock-start)
   (sb-posix:fcntl fd sb-posix:f-setlk
                   (make-instance 'sb-posix:flock
@@ -171,7 +159,6 @@
                                  :start lock-start
                                  :len 0)))
 
-#+sbcl
 (progn
   (defun %call-with-shared-advisory-file-lock (thunk stream identity fd)
     (unwind-protect
@@ -235,7 +222,6 @@ on every exit path."
             (%call-with-reserved-advisory-file-lock
              thunk stream identity fd lock-start mode wait timeout
              status deadline held-lock)))))))
-#+sbcl
 (progn
   (defmacro with-advisory-file-lock ((stream &key (wait t) timeout (mode :exclusive))
                                      &body body)
@@ -292,26 +278,3 @@ TIMEOUT has the same bounded-wait semantics as CALL-WITH-FILE-LOCK."
       :timeout ,timeout
       :mode ,mode)))
 
-#-sbcl
-(progn
-  (defun call-with-advisory-file-lock (thunk stream
-                                       &key (wait t) timeout (mode :exclusive))
-    (declare (ignore thunk stream wait timeout mode))
-    (%unsupported 'call-with-advisory-file-lock))
-
-  (defmacro with-advisory-file-lock ((stream
-                                       &key (wait t) timeout (mode :exclusive))
-                                      &body body)
-    (declare (ignore stream wait timeout mode body))
-    `(%unsupported 'with-advisory-file-lock))
-
-  (defun call-with-file-lock (thunk pathspec
-                              &key (wait t) timeout (mode :exclusive))
-    (declare (ignore thunk pathspec wait timeout mode))
-    (%unsupported 'call-with-file-lock))
-
-  (defmacro with-file-lock ((stream pathspec
-                             &key (wait t) timeout (mode :exclusive))
-                            &body body)
-    (declare (ignore stream pathspec wait timeout mode body))
-    `(%unsupported 'with-file-lock)))

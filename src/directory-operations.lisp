@@ -3,7 +3,6 @@
 ;;;; Directory enumeration, traversal, creation, deletion, and renaming.
 (in-package #:host-kit)
 
-#+sbcl
 (defun %directory-entry-names (directory)
   "Return DIRECTORY's entries, including dotfiles, in deterministic order."
   (%with-host-operation (:directory-entry-names directory)
@@ -17,7 +16,6 @@
                  #'string<)
         (sb-posix:closedir stream)))))
 
-#+sbcl
 (defun call-with-directory-entries (thunk pathspec &key (follow-symlinks nil))
   "Call THUNK for each direct entry in directory PATHSPEC.
 THUNK receives an entry pathname and its immutable FILE-METADATA. Dotfiles are
@@ -37,12 +35,6 @@ reported without following links unless FOLLOW-SYMLINKS is true. Returning
           (return)))))
   (values))
 
-#-sbcl
-(defun call-with-directory-entries (thunk pathspec &key (follow-symlinks nil))
-  (declare (ignore thunk pathspec follow-symlinks))
-  (%unsupported 'call-with-directory-entries))
-
-#+sbcl
    (defun directory-empty-p (pathspec)
      "Return true when PATHSPEC denotes an existing empty directory.
 Dotfiles count as entries. A missing path or a non-directory signals
@@ -60,11 +52,6 @@ HOST-OPERATION-FAILED."
                         do (return nil)
                       finally (return t))
              (sb-posix:closedir stream))))))
-
-#-sbcl
-   (defun directory-empty-p (pathspec)
-     (declare (ignore pathspec))
-     (%unsupported (quote directory-empty-p)))
 
 (defmacro with-directory-entries ((pathname metadata pathspec &key (follow-symlinks nil)) &body body)
   "Lexically bind PATHNAME and METADATA while enumerating PATHSPEC's entries."
@@ -105,7 +92,6 @@ FOLLOW-SYMLINKS is true, links to directories are included."
       :follow-symlinks follow-symlinks)
     (nreverse directories)))
 
-#+sbcl
 (progn
   (defun %directory-tree-identity (metadata)
     (cons (file-metadata-device metadata)
@@ -172,11 +158,6 @@ has depth zero."
       (%walk-directory-tree thunk root 0 follow-symlinks max-depth visited))
     (values)))
 
-#-sbcl
-(defun call-with-directory-tree (thunk pathspec &key (follow-symlinks nil) max-depth)
-  (declare (ignore thunk pathspec follow-symlinks max-depth))
-  (%unsupported 'call-with-directory-tree))
-
 (defmacro with-directory-tree
     ((pathname metadata depth pathspec &key (follow-symlinks nil) max-depth) &body body)
   "Lexically bind PATHNAME, METADATA, and DEPTH while walking PATHSPEC."
@@ -215,7 +196,6 @@ location signals HOST-OPERATION-FAILED rather than being silently accepted."
 
 A dangling symbolic link is removed as a link.  Return NIL when PATHSPEC is
 missing, denotes a directory, or names another special filesystem entry."
-  #+sbcl
   (let ((pathname (ensure-pathname pathspec)))
     (when (and (path-exists-p pathname)
                (member (file-metadata-kind
@@ -223,14 +203,8 @@ missing, denotes a directory, or names another special filesystem entry."
                        '(:regular-file :symbolic-link)))
       (%with-host-operation (:delete-file-if-exists pathname)
         (delete-file pathname))
-      t))
-  #-sbcl
-  (when (file-exists-p pathspec)
-    (%with-host-operation (:delete-file-if-exists pathspec)
-      (delete-file pathspec))
-    t))
+      t)))
 
-#+sbcl
 (defun delete-empty-directory (pathspec)
   "Delete empty directory PATHSPEC. A missing or non-empty directory signals
 HOST-OPERATION-FAILED."
@@ -239,12 +213,6 @@ HOST-OPERATION-FAILED."
       (sb-posix:rmdir (namestring pathname)))
     (values)))
 
-#-sbcl
-(defun delete-empty-directory (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported 'delete-empty-directory))
-
-#+sbcl
 (progn
   (defun %final-entry-namestring (pathname)
     "Return the final entry spelling of PATHNAME without a resolving trailing slash."
@@ -291,7 +259,6 @@ as links. IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE."
                 nil
                 (error condition))))))))
 
-#+sbcl
 (defun delete-directory-tree (pathspec &key validate (if-does-not-exist :error))
   "Recursively delete directory PATHSPEC.
 IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE. When VALIDATE is true,
@@ -327,23 +294,11 @@ rejected."
                 (error condition)))))))
   (values))
 
-#-sbcl
-(progn
-  (defun delete-path (pathspec &key recursive (if-does-not-exist :error))
-    (declare (ignore pathspec recursive if-does-not-exist))
-    (%unsupported (quote delete-path)))
-
-  (defun delete-directory-tree (pathspec &key validate (if-does-not-exist :error))
-    (declare (ignore pathspec validate if-does-not-exist))
-    (%unsupported (quote delete-directory-tree))))
-
-#+sbcl
 (defun %rename-path-overwriting-target (source target)
   "Atomically rename SOURCE to TARGET, replacing TARGET when it exists."
   (sb-posix:rename (%final-entry-namestring source)
                    (%final-entry-namestring target)))
 
-#+sbcl
 (progn
   (defun %cross-device-error-p (condition)
     "Return true when CONDITION reports a cross-filesystem rename."
@@ -399,13 +354,7 @@ against a concurrent creator."
         (%move-path-by-renaming-or-copying source target if-exists))
       target)))
 
-#-sbcl
-(defun move-path (source target &key (if-exists :error))
-  (declare (ignore source target if-exists))
-  (%unsupported 'move-path))
-
 (progn
-  #+sbcl
   (defun create-directory (pathspec &key (mode #o777) (if-exists :error))
     "Create one directory at PATHSPEC without creating missing parents.
 MODE is an integer from 0 through #o7777 and is filtered by the process umask.
@@ -427,13 +376,8 @@ HOST-OPERATION-FAILED. Return the created or existing directory's truename."
                   (return-from create-directory existing)
                   (error condition))))))
       (or (directory-exists-p pathname)
-          (error "Unable to create directory ~S" pathname))))
-  #-sbcl
-  (defun create-directory (pathspec &key (mode #o777) (if-exists :error))
-    (declare (ignore pathspec mode if-exists))
-    (%unsupported 'create-directory)))
+          (error "Unable to create directory ~S" pathname)))))
 
-#+sbcl
 (defun %filesystem-root-p (pathname)
   "Return true when PATHNAME resolves to the filesystem root."
   (equal (pathname-directory

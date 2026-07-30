@@ -4,7 +4,6 @@
 ;;;; TEMPORARY-RESOURCES and FILESYSTEM-QUERY being loaded first.
 (in-package #:host-kit)
 
-#+sbcl
 (defun %existing-file-mode (pathspec)
   "Return PATHSPEC's access permission bits when it is an existing regular file."
   (let ((pathname (file-exists-p pathspec)))
@@ -12,21 +11,12 @@
       (logand #o777
               (sb-posix:stat-mode (sb-posix:stat (namestring pathname)))))))
 
-#-sbcl
-(defun %existing-file-mode (pathspec)
-  (declare (ignore pathspec))
-  nil)
-
 (defun %apply-existing-file-mode (source target)
   "Copy SOURCE's existing access permission bits to TARGET before an atomic rename."
-  #+sbcl
   (let ((mode (%existing-file-mode source)))
     (when mode
-      (sb-posix:chmod (namestring target) mode)))
-  #-sbcl
-  (declare (ignore source target)))
+      (sb-posix:chmod (namestring target) mode))))
 
-#+sbcl
 (defun %synchronize-pathname (pathname)
   "Synchronously persist PATHNAME's file data and metadata."
   (let ((descriptor nil))
@@ -36,11 +26,6 @@
            (sb-posix:fsync descriptor))
       (when descriptor
         (sb-posix:close descriptor)))))
-
-#-sbcl
-(defun %synchronize-pathname (pathname)
-  (declare (ignore pathname))
-  (%unsupported :synchronize-pathname))
 
 (progn
   (defun %publish-atomic-output-file (target temporary-pathname directory synchronize)

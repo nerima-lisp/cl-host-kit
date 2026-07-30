@@ -27,11 +27,9 @@ honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
   "Return an SB-POSIX secure temporary-name template beneath DIRECTORY."
   (namestring (merge-pathnames (format nil "~AXXXXXX" prefix) directory)))
 
-#+sbcl
 (defun %name-collision-p (condition)
   (= (sb-posix:syscall-errno condition) sb-posix:eexist))
 
-#+sbcl
 (defun %create-temporary-directory (directory prefix)
   "Create an owner-only directory with an OS-generated unpredictable name."
   (handler-case
@@ -41,11 +39,6 @@ honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
       (if (%name-collision-p condition)
           nil
           (error condition)))))
-
-#-sbcl
-(defun %create-temporary-directory (directory prefix)
-  (declare (ignore directory prefix))
-  (%unsupported 'call-with-temporary-directory))
 
 (defun %temporary-resource-keep-p (keep)
     (if (functionp keep)
@@ -114,7 +107,6 @@ Delete it after normal return or signalling unless KEEP is true after success."
 (defun %temporary-file-pathname (template suffix)
   (pathname (concatenate 'string template suffix)))
 
-#+sbcl
 (defun %open-temporary-file (directory prefix suffix direction element-type external-format)
   "Open a securely-created temporary file, or return NIL on final-name collision."
   (let ((pathname nil))
@@ -157,10 +149,7 @@ Delete it after normal return or signalling unless KEEP is true after success."
 (defun %synchronize-output-stream (stream)
     "Flush STREAM and persist it when the host supports it."
     (finish-output stream)
-    #+sbcl
-    (sb-posix:fsync (sb-sys:fd-stream-fd stream))
-    #-sbcl
-    (%unsupported 'call-with-temporary-file))
+    (sb-posix:fsync (sb-sys:fd-stream-fd stream)))
   (defun %validate-temporary-file-options
       (thunk prefix suffix attempts direction synchronize)
     "Validate the public temporary-file lifecycle options."
