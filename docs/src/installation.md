@@ -12,7 +12,7 @@ nerima-lisp org uses for sibling packages: pull the source only
 
 ```nix
 inputs.cl-host-kit = {
-  url = "github:nerima-lisp/cl-host-kit/v0.1.0";
+  url = "github:nerima-lisp/cl-host-kit/v0.2.0";
   flake = false;
 };
 ```

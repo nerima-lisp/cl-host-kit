@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Fixed
 
 - `t/conditions-test.lisp`'s "API reference contract" test (which walks every
