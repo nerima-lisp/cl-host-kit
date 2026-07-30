@@ -50,6 +50,30 @@
         in
         builtins.head (builtins.match "[[:space:]]*:version \"([^\"]*)\"" versionLine);
 
+      coverageScriptFor =
+        pkgs:
+        pkgs.writeText "cl-host-kit-coverage.lisp" ''
+          (require :asdf)
+          (require :sb-cover)
+
+          (declaim (optimize sb-cover:store-coverage-data))
+
+          (asdf:initialize-source-registry
+           '(:source-registry
+             (:tree "${self}")
+             :inherit-configuration))
+          (asdf:operate 'asdf:test-op "cl-host-kit" :force t)
+          (let ((source-directory (namestring #P"${self}/src/")))
+            (sb-cover:report
+             (or (sb-ext:posix-getenv "CL_HOST_KIT_COVERAGE_DIR") "coverage/")
+             :if-matches
+             (lambda (namestring)
+               (and (<= (length source-directory) (length namestring))
+                    (string= source-directory namestring
+                             :end2 (length source-directory))))))
+          (sb-ext:exit :code 0)
+        '';
+
       # treefmt drives `nix fmt` and the `checks.<system>.formatting` gate.
       # Scope is Nix only, for the same reason as every other repo in this
       # org: YAML formatters mangle the GitHub Actions `on:` key and
@@ -165,6 +189,54 @@
           # or a page missing from the nav fails the build here rather than
           # at deploy time after a merge to main.
           docs = self.packages.${system}.docs;
+
+          coverage =
+            let
+              coverageScript = coverageScriptFor pkgs;
+            in
+            pkgs.runCommand "cl-host-kit-coverage"
+              {
+                nativeBuildInputs = [
+                  pkgs.sbcl
+                  pkgs.coreutils
+                  pkgs.perl
+                ];
+                CL_SOURCE_REGISTRY = sourceRegistry;
+              }
+              ''
+                export HOME="$TMPDIR/home"
+                export CL_HOST_KIT_COVERAGE_DIR="$TMPDIR/coverage/"
+                mkdir -p "$HOME" "$out"
+                timeout 120 sbcl --script ${coverageScript}
+                perl -0777 -ne '
+                  my ($expression_covered, $expression_total, $branch_covered, $branch_total);
+                  s{</tr>}{\n}g;
+                  s{<[^>]+>}{ }g;
+                  s{&nbsp;}{ }g;
+                  for (split /\n/) {
+                    s{\s+}{ }g;
+                    next unless / [^ ]+\.lisp (\d+) (\d+) [\d.]+ (\d+) (\d+) [\d.-]+/;
+                    $expression_covered += $1;
+                    $expression_total += $2;
+                    $branch_covered += $3;
+                    $branch_total += $4;
+                  }
+                  for my $requirement (
+                    [expression => $expression_covered => $expression_total => 94],
+                    [branch => $branch_covered => $branch_total => 90],
+                  ) {
+                    my ($kind, $covered, $total, $minimum) = @$requirement;
+                    die "Coverage report does not contain $kind totals\n"
+                      unless defined $covered && defined $total && $total > 0;
+                    my $percentage = 100 * $covered / $total;
+                    printf "%s coverage: %.1f%% (%d/%d), minimum: %d%%\n",
+                      ucfirst($kind), $percentage, $covered, $total, $minimum;
+                    die "$kind coverage is below $minimum%\n"
+                      if $percentage < $minimum;
+                  }
+                ' "$CL_HOST_KIT_COVERAGE_DIR/cover-index.html"
+                touch "$out/passed"
+              '';
         }
       );
 
@@ -226,6 +298,24 @@
               timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString benchmarkTimeoutSeconds}s sbcl \
                 --eval '(let ((fasl-root (or (sb-ext:posix-getenv "CL_HOST_KIT_FASL_ROOT") (error "CL_HOST_KIT_FASL_ROOT is not set")))) (dolist (component (quote ("package" "conditions" "strings" "pathnames" "environment" "working-directory" "filesystem"))) (load (merge-pathnames (format nil "src/~A.fasl" component) fasl-root))))' \
                 --script ${self}/bench/microbench.lisp
+            '';
+          };
+          coverageScript = coverageScriptFor pkgs;
+          coverage = pkgs.writeShellApplication {
+            name = "cl-host-kit-coverage";
+            runtimeInputs = [
+              pkgs.sbcl
+              pkgs.coreutils
+            ];
+            text = ''
+              export CL_SOURCE_REGISTRY="${sourceRegistry}"
+              coverage_directory="''${CL_HOST_KIT_COVERAGE_DIR:-coverage/}"
+              case "$coverage_directory" in
+                */) ;;
+                *) coverage_directory="$coverage_directory/" ;;
+              esac
+              export CL_HOST_KIT_COVERAGE_DIR="$coverage_directory"
+              exec timeout 120 sbcl --script ${coverageScript}
             '';
           };
         in

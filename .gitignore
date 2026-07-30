@@ -15,6 +15,9 @@
 tmp/
 tmp-debug/
 
+# SBCL coverage HTML report
+/coverage/
+
 # Serena project cache
 .serena/cache/
 

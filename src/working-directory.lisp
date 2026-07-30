@@ -6,6 +6,18 @@
 ;;;; MERGE-PATHNAMES against it without a separate coercion step.
 (in-package #:host-kit)
 
+(defvar *working-directory-scope-lock*
+  (sb-thread:make-mutex :name "host-kit working directory scope"))
+
+(defvar *working-directory-scope-lock-held-p* nil)
+
+(defun %call-with-working-directory-scope-lock (thunk)
+  (if *working-directory-scope-lock-held-p*
+      (funcall thunk)
+      (sb-thread:with-mutex (*working-directory-scope-lock*)
+        (let ((*working-directory-scope-lock-held-p* t))
+          (funcall thunk)))))
+
 (defun getcwd ()
   "Return the current working directory as a directory-form pathname."
   (%with-host-operation (:getcwd nil)
@@ -17,21 +29,21 @@
     (sb-posix:chdir (pathname pathspec)))
   (values))
 
-(defun call-with-current-directory (pathspec thunk)
-  "Call THUNK with PATHSPEC as the process current directory.
+(defun call-with-working-directory (thunk pathspec)
+  "Call THUNK with PATHSPEC as the current working directory.
 
-The original directory is restored during normal return, non-local exit, or
-error, including an error raised while changing to PATHSPEC."
-  (unless (functionp thunk)
-    (error "Current-directory scope thunk must be a function, got ~S" thunk))
-  (let ((original-directory (getcwd)))
-    (unwind-protect
-         (progn
-           (chdir pathspec)
-           (funcall thunk))
-      (chdir original-directory))))
+The previous working directory is restored when THUNK returns or exits
+non-locally. THUNK receives no arguments and its values are returned. Scoped
+changes are serialized with other HOST-KIT working-directory scopes."
+  (check-type thunk function)
+  (%call-with-working-directory-scope-lock
+   (lambda ()
+     (let ((previous-directory (getcwd)))
+       (chdir pathspec)
+       (unwind-protect
+            (funcall thunk)
+         (chdir previous-directory))))))
 
-(defmacro with-current-directory ((pathspec) &body body)
-  "Run BODY with the process current directory set to PATHSPEC, restoring the
-previous directory during normal return, non-local exit, or error."
-  `(call-with-current-directory ,pathspec (lambda () ,@body)))
+(defmacro with-working-directory ((pathspec) &body body)
+  "Evaluate BODY with PATHSPEC as the current working directory."
+  `(call-with-working-directory (lambda () ,@body) ,pathspec))

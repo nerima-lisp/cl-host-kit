@@ -86,17 +86,22 @@ and lives under `t/`, one test file per `src/` file.
 | `src/package.lisp` | The single public package. |
 | `src/conditions.lisp` | `host-kit-error` and its subtypes, and the `%with-host-operation` wrapping macro. |
 | `src/strings.lisp` | `split-string`, `string-prefix-p`. |
-| `src/pathnames.lisp` | Pathname coercion and predicates. |
-| `src/environment.lisp` | `getenv`, `(setf getenv)`, `quit`. |
-| `src/working-directory.lisp` | `getcwd`, `chdir`. |
-| `src/filesystem.lisp` | Existence checks, listing, deletion, renaming, temp directory, file reads. |
+| `src/pathnames.lisp` | Pathname coercion, predicates, and parent-directory calculation. |
+| `src/environment.lisp` | Environment variables, command-line arguments, hostname, and `quit`. |
+| `src/process.lisp` | Program lookup, execution, output capture, and timeout handling. |
+| `src/working-directory.lisp` | `getcwd`, `chdir`, and serialized scoped directory changes. |
+| `src/filesystem-metadata.lisp` | Metadata, symbolic links, permission bits, timestamps, and existence predicates. |
+| `src/directory-operations.lisp` | Directory listing/traversal, creation, deletion, and renaming. |
+| `src/temporary-resources.lisp` | Temporary directory and file lifecycles. |
+| `src/file-io.lisp` | Whole-file reads, line reads, atomic writes, and directory-tree copying. |
+| `src/file-locking.lisp` | Scoped advisory file locks with timeout handling. |
 
 ## Conventions
 
-- **Keep the contract deliberately narrow.** Before adding a new function
-  or keyword argument, check [Compatibility](compatibility.md), document the
-  supported behavior, and add focused tests. Do not add an API merely because
-  UIOP exposes it.
+- **Keep the public contract direct.** Do not copy UIOP signatures or add
+  compatibility-only keyword arguments. Add a host operation only when its
+  behavior, ownership, failure mode, and tests can be specified independently
+  of UIOP; update [Compatibility](compatibility.md) when it affects migration.
 - **Every OS-facing function wraps failures.** Use the `%with-host-operation`
   macro from `src/conditions.lisp` so failures surface as
   `host-operation-failed` rather than a raw `sb-posix` or `file-error`

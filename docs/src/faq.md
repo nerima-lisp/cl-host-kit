@@ -15,7 +15,7 @@ So that code depending on `cl-host-kit` for everything else does not also
 need a direct `sb-ext:` reference for the one remaining case. The library is
 SBCL-native and does not provide a portability fallback.
 
-## Why is `rename-file-overwriting-target` built on `sb-posix:rename` instead of `cl:rename-file`?
+## Why does `move-path` use `sb-posix:rename` instead of `cl:rename-file`?
 
 POSIX `rename(2)` already overwrites its destination atomically. Common
 Lisp's own `rename-file` does not make that same guarantee portably, and
