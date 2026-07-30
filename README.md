@@ -4,11 +4,11 @@
 [![Publish documentation](https://github.com/nerima-lisp/cl-host-kit/actions/workflows/docs.yml/badge.svg)](https://github.com/nerima-lisp/cl-host-kit/actions/workflows/docs.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A dependency-free host-environment toolkit for Common Lisp: pathname
+An SBCL-native host-environment toolkit for Common Lisp: pathname
 coercion and predicates, filesystem existence checks and non-recursive
 listing, a temporary directory, environment-variable read/write, and the
-string helpers that go with them. It replaces the corner of `uiop` that
-nerima-lisp's own code actually calls, with SBCL's `sb-posix` as the only
+string helpers that go with them. It exposes a documented, deliberately
+narrow subset of UIOP-shaped operations, with SBCL's `sb-posix` as the only
 implementation dependency.
 
 📖 **Documentation: <https://nerima-lisp.github.io/cl-host-kit/>**
@@ -51,16 +51,20 @@ Every function that touches the OS wraps its failure in a structured
 [API Reference](https://nerima-lisp.github.io/cl-host-kit/api-reference/)
 for the full surface.
 
+`getenv`/`(setf getenv)` and `getcwd`/`chdir` operate on process-global
+state. Scoped helpers restore state reliably on normal and non-local exits,
+but callers that use threads must provide their own process-wide exclusion.
+
 ## Why another host/filesystem library?
 
-**Scoped to what nerima-lisp actually calls, not uiop's full surface.**
+**A deliberately narrow contract, not uiop's full surface.**
 `uiop`'s pathname and filesystem functions accept a long tail of keyword
-arguments (`:want-pathname`, `:want-directory`, `:defaults`, ...) that an
-org-wide call-site survey found unused anywhere in this org. HOST-KIT
-implements the narrower contract those call sites actually rely on instead
-of the full kitchen sink — see
+arguments (`:want-pathname`, `:want-directory`, `:defaults`, ...). HOST-KIT
+specifies and tests only the supported argument shapes instead of the full
+kitchen sink. See
 [Compatibility](https://nerima-lisp.github.io/cl-host-kit/compatibility/)
-for exactly which uiop symbols map to which HOST-KIT function.
+for the supported mappings; audit a dependent project before replacing a
+`uiop:` dependency.
 
 **Not a grab bag.** Process launching (`uiop:run-program` and friends) is
 deliberately out of scope — that is
@@ -76,16 +80,43 @@ it already does it better than uiop did.
 - **A documented, minimal contract.** Each function's docstring states
   exactly the argument and return shape it supports — no undocumented
   keyword arguments inherited from uiop's original signatures.
-- **SBCL-only, honestly.** Every exported function still has a `#-sbcl`
-  definition, so loading this system under another implementation fails
-  with one clear `unsupported-implementation` condition per call, rather
-  than an undefined-function error at some unrelated call site.
+- **SBCL-native.** The system depends directly on SBCL's `sb-posix` contrib;
+  it is intentionally not loadable on other Common Lisp implementations.
 
 ## Develop
 
 ```sh
-sbcl --script run-tests.lisp   # or: nix flake check
+nix run .#test
+nix flake check --print-build-logs
 ```
+
+Run repeatable microbenchmarks. Each case targets 20 ms of work before collecting three warmups and seven samples, with a per-case cap of 250 operations. Full garbage collections bracket the warmup and measurement phases, keeping their cost out of individual samples:
+
+```sh
+nix run .#bench
+```
+
+To investigate one hot path without running the full suite, select a group with
+`CL_HOST_KIT_BENCHMARK`: `splits`, `pathnames`, or `filesystem`.
+
+```sh
+CL_HOST_KIT_BENCHMARK=pathnames nix run .#bench
+```
+
+The runner also compares selected, result-equivalent operations against ASDF's
+bundled `uiop` implementation. `uiop` is loaded only by the benchmark, never
+by the library system. Each comparison checks that both implementations return
+the same result before timing; operations with incompatible calling conventions
+are not compared. A relative value below `1.00x` means HOST-KIT used less time
+or allocation in that local run, not that it is universally fastest.
+
+Generate an SBCL/SB-COVER HTML coverage report in a temporary directory:
+
+```sh
+nix run .#coverage
+```
+
+The flake `coverage` check verifies that the report is generated.
 
 `nix flake check` also runs the formatting gate and builds the
 documentation. [Contributing](https://nerima-lisp.github.io/cl-host-kit/contributing/)

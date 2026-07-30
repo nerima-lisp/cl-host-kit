@@ -24,7 +24,7 @@ the tests, `cl-weave`) are visible to ASDF, then load the system:
 From a checkout:
 
 ```sh
-sbcl --script run-tests.lisp
+nix run .#test
 ```
 
 Or reproducibly, as a Nix derivation (this is what CI runs):
@@ -32,6 +32,46 @@ Or reproducibly, as a Nix derivation (this is what CI runs):
 ```sh
 nix flake check
 ```
+
+Test and coverage entry points enforce a 300-second timeout, followed by a
+15-second graceful-termination window. The benchmark entry point uses a
+120-second timeout. Use `nix flake check --print-build-logs` in CI or when
+diagnosing a failure.
+
+### Microbenchmarks
+
+The repeatable microbenchmark runner targets 20 ms per case, then reports
+medians after three warmups and seven measured samples. A 250-operation cap
+bounds calibration, while full garbage collections bracket the warmup and
+measurement phases so their cost stays out of individual samples. It is a
+diagnostic tool, not a CI performance gate:
+
+```sh
+nix run .#bench
+```
+
+Set `CL_HOST_KIT_BENCHMARK` to `splits`, `pathnames`, or `filesystem` to
+investigate one hot-path group:
+
+```sh
+CL_HOST_KIT_BENCHMARK=pathnames nix run .#bench
+```
+
+Selected cases also compare against ASDF's bundled `uiop` implementation. The
+benchmark verifies equal results before measuring and excludes APIs whose
+calling conventions cannot be aligned. `uiop` is a benchmark-only baseline,
+not a dependency of `cl-host-kit`; a relative value below `1.00x` reports a
+lower local measurement, not a universal performance claim.
+
+### Coverage
+
+Generate an SBCL/SB-COVER HTML report in a temporary directory:
+
+```sh
+nix run .#coverage
+```
+
+The flake `coverage` check verifies report generation.
 
 The test system (`cl-host-kit/test`) uses [`cl-weave`](https://github.com/nerima-lisp/cl-weave)
 and lives under `t/`, one test file per `src/` file.
@@ -53,18 +93,16 @@ and lives under `t/`, one test file per `src/` file.
 
 ## Conventions
 
-- **Scope is call-site-driven, not uiop-driven.** Before adding a new
-  function or a new keyword argument to an existing one, check
-  [Compatibility](compatibility.md) — the rule this library follows is "a
-  real call site in nerima-lisp needs it," not "uiop has it."
+- **Keep the contract deliberately narrow.** Before adding a new function
+  or keyword argument, check [Compatibility](compatibility.md), document the
+  supported behavior, and add focused tests. Do not add an API merely because
+  UIOP exposes it.
 - **Every OS-facing function wraps failures.** Use the `%with-host-operation`
   macro from `src/conditions.lisp` so failures surface as
   `host-operation-failed` rather than a raw `sb-posix` or `file-error`
   condition.
-- **SBCL only, paired `#+sbcl`/`#-sbcl` definitions.** Every exported
-  function needs both: the real `#+sbcl` implementation, and a `#-sbcl`
-  definition that calls `%unsupported`. See any existing function in
-  `src/environment.lisp` or `src/working-directory.lisp` for the pattern.
+- **SBCL-native implementation.** Use SBCL and its `sb-posix` contrib
+  directly. Do not add portability shims or fallback implementations.
 - **Zero external dependencies.** The main system depends on nothing beyond
   SBCL's own `sb-posix` contrib. Before adding anything else, see
   `.github/DEPENDENCY_POLICY.md` in the

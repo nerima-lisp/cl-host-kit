@@ -15,10 +15,6 @@ single source of truth for what is exported).
   the pathname or string it was attempted on (or `NIL`);
   `host-operation-failed-reason` is the underlying condition that caused the
   failure.
-- **`unsupported-implementation`** (`feature`) — Signalled when a
-  `cl-host-kit` operation is called on a non-SBCL implementation.
-  `unsupported-implementation-feature` names the operation.
-
 ## Environment and process lifecycle
 
 `src/environment.lisp`
@@ -39,6 +35,11 @@ single source of truth for what is exported).
 - **`(chdir pathspec)`** — Change the current working directory to
   `pathspec` (a pathname designator).
 
+Environment variables and the current directory are process-global state.
+The scoped APIs restore the previous state with `unwind-protect`, including
+on non-local exit. They do not serialize concurrent callers; threaded
+programs must provide process-wide exclusion around state-changing calls.
+
 ## Pathnames
 
 `src/pathnames.lisp`
@@ -56,7 +57,8 @@ single source of truth for what is exported).
 - **`(pathname-directory-pathname pathspec)`** — Return the directory-only
   portion of `pathspec`.
 - **`(truenamize pathspec)`** — Return a canonical, absolute form of
-  `pathspec`, resolving symlinks; unlike `truename`, does not error when
+  `pathspec`, resolving the closest existing parent and preserving all
+  missing trailing components; unlike `truename`, does not error when
   `pathspec` does not (yet) exist.
 
 ## Filesystem
@@ -79,14 +81,17 @@ single source of truth for what is exported).
   `target`, atomically replacing `target` if it exists.
 - **`(temporary-directory)`** — Return the system temporary directory,
   honoring `TMPDIR`.
-- **`(read-file-string pathspec)`** — Return the entire contents of the file
-  `pathspec` as a string.
+- **`(read-file-string pathspec)`** — Return the entire UTF-8 contents of the
+  file `pathspec` as a string. Read and decoding failures signal
+  `host-operation-failed` with `:read-file-string` as its operation; the
+  underlying decoding condition is available through
+  `host-operation-failed-reason`.
 
 ## Strings
 
 `src/strings.lisp`
 
-- **`(split-string string &key (separator '(#\Space)))`** — Split `string`
+- **`(split-string string &key (separator #\Space))`** — Split `string`
   wherever any character in `separator` (a list of characters, a string, or
   a single character) appears. Consecutive separator characters produce
   empty-string segments between them.

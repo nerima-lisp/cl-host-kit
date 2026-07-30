@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Initial release: `getenv`/`(setf getenv)`, `quit`, `getcwd`, `chdir`,
@@ -16,8 +18,7 @@ All notable changes to this project will be documented in this file.
   `string-prefix-p`. Every OS-facing call is built on SBCL's `sb-posix`
   contrib or plain Lisp file operations; there is no dependency on `uiop`
   or any other external library.
-- The scope of this first release is the exact union of `uiop:` symbols
-  nerima-lisp's own production code calls (excluding process launching,
-  which is `cl-process-kit`'s domain), each implemented against the
-  narrower argument contract those call sites actually use rather than
-  uiop's full keyword-argument surface.
+- The first release defines a deliberately narrow, documented subset of
+  UIOP-shaped pathname, filesystem, environment, and string operations.
+  Process launching and UIOP's broader keyword-argument surface are out of
+  scope.

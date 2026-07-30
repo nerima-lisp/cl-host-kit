@@ -33,7 +33,7 @@ jobs:
           PACKAGE: cl-host-kit
         run: |
           set -euo pipefail
-          asd_version="$(sed -n 's/^[[:space:]]*:version "\([^"]*\)".*/\1/p' "$PACKAGE.asd" | head -n1)"
+            asd_version="$(perl -ne 'if (/^\s*:version "([^"]*)"/) { print "$1\n"; exit }' "$PACKAGE.asd")"
           tag_version="${GITHUB_REF_NAME#v}"
           echo "asd=$asd_version tag=$tag_version"
           if [[ "$asd_version" != "$tag_version" ]]; then
@@ -56,11 +56,12 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
+            VERSION="$version" perl -ne '
+              BEGIN { $version = $ENV{VERSION}; $found = 0 }
+              if (/^## \[\Q$version\E\]/) { $found = 1; next }
+              exit if $found && /^## /;
+              print if $found;
+            ' CHANGELOG.md > release-notes.md
           if [[ ! -s release-notes.md ]]; then
             echo "::error::CHANGELOG.md has no section for [$version]" >&2
             exit 1

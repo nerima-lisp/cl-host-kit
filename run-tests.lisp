@@ -14,13 +14,13 @@
 
 (defun configure-local-source-registry (root)
   (asdf:initialize-source-registry
-   `(:source-registry
-     (:tree ,root)
-     :inherit-configuration)))
+    `(:source-registry
+      (:directory ,root)
+      :inherit-configuration)))
 
 (let ((root (script-directory)))
   (configure-local-source-registry root)
-  (asdf:test-system "cl-host-kit")
+  (asdf:test-system "cl-host-kit/test")
   ;; SB-EXT:EXIT rather than HOST-KIT:QUIT: the HOST-KIT package does not
   ;; exist until CL-HOST-KIT finishes loading above, and this whole LET is
   ;; one top-level form -- the reader would have to resolve HOST-KIT:QUIT

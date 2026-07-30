@@ -35,7 +35,5 @@ framework; that dependency does not affect the shipped library.
 
 ## Supported implementation
 
-SBCL only. Every exported function still has a `#-sbcl` definition that
-signals a clear `unsupported-implementation` condition, so loading and
-calling this system on another implementation fails predictably rather than
-with an undefined-function error at some unrelated call site.
+SBCL only. The system depends directly on SBCL's bundled `sb-posix` contrib,
+and is intentionally not loadable on other Common Lisp implementations.

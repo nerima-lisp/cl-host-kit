@@ -6,7 +6,7 @@
 
 site_name: cl-host-kit
 site_description: >-
-  Dependency-free host-environment toolkit for Common Lisp — pathnames,
+  SBCL-native host-environment toolkit for Common Lisp — pathnames,
   filesystem, environment variables, and the string helpers that go with
   them.
 site_author: cl-host-kit contributors

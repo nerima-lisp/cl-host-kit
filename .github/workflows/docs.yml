@@ -49,6 +49,7 @@ jobs:
   deploy:
     name: Deploy documentation
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
