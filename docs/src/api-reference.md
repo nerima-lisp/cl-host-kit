@@ -15,10 +15,6 @@ single source of truth for what is exported).
   the pathname or string it was attempted on (or `NIL`);
   `host-operation-failed-reason` is the underlying condition that caused the
   failure.
-- **`unsupported-implementation`** (`feature`) — Signalled when a
-  `cl-host-kit` operation is called on a non-SBCL implementation.
-  `unsupported-implementation-feature` names the operation.
-
 ## Environment and process lifecycle
 
 `src/environment.lisp`
@@ -49,6 +45,11 @@ single source of truth for what is exported).
 - **`(with-current-directory (pathspec) &body body)`** — Run `body` with
   `pathspec` as the current directory through the CPS primitive.
 
+Environment variables and the current directory are process-global state.
+The scoped APIs restore the previous state with `unwind-protect`, including
+on non-local exit. They do not serialize concurrent callers; threaded
+programs must provide process-wide exclusion around state-changing calls.
+
 ## Pathnames
 
 `src/pathnames.lisp`
@@ -66,7 +67,8 @@ single source of truth for what is exported).
 - **`(pathname-directory-pathname pathspec)`** — Return the directory-only
   portion of `pathspec`.
 - **`(truenamize pathspec)`** — Return a canonical, absolute form of
-  `pathspec`, resolving symlinks; unlike `truename`, does not error when
+  `pathspec`, resolving the closest existing parent and preserving all
+  missing trailing components; unlike `truename`, does not error when
   `pathspec` does not (yet) exist.
 
 ## Filesystem
@@ -96,8 +98,11 @@ single source of truth for what is exported).
 - **`(with-temporary-file (&key stream pathname directory prefix suffix type keep attempts ...) &body body)`**
   — Bind a temporary file stream and/or pathname for `body`. Place
   `:close-stream` in `body` to run subsequent forms after closing the stream.
-- **`(read-file-string pathspec)`** — Return the entire contents of the file
-  `pathspec` as a string.
+- **`(read-file-string pathspec)`** — Return the entire UTF-8 contents of the
+  file `pathspec` as a string. Read and decoding failures signal
+  `host-operation-failed` with `:read-file-string` as its operation; the
+  underlying decoding condition is available through
+  `host-operation-failed-reason`.
 - **`(call-with-atomic-output-file target thunk &key element-type external-format)`**
   — Call `thunk` with an output stream backed by a temporary file in the target
   directory. After a successful callback, close and atomically replace the
@@ -116,7 +121,7 @@ single source of truth for what is exported).
 
 `src/strings.lisp`
 
-- **`(split-string string &key (separator '(#\Space)))`** — Split `string`
+- **`(split-string string &key (separator #\Space))`** — Split `string`
   wherever any character in `separator` (a list of characters, a string, or
   a single character) appears. Consecutive separator characters produce
   empty-string segments between them.

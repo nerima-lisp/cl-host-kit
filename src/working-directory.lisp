@@ -6,27 +6,16 @@
 ;;;; MERGE-PATHNAMES against it without a separate coercion step.
 (in-package #:host-kit)
 
-#+sbcl
 (defun getcwd ()
   "Return the current working directory as a directory-form pathname."
   (%with-host-operation (:getcwd nil)
     (ensure-directory-pathname (sb-posix:getcwd))))
 
-#-sbcl
-(defun getcwd ()
-  (%unsupported 'getcwd))
-
-#+sbcl
 (defun chdir (pathspec)
   "Change the current working directory to PATHSPEC (a pathname designator)."
   (%with-host-operation (:chdir pathspec)
     (sb-posix:chdir (pathname pathspec)))
   (values))
-
-#-sbcl
-(defun chdir (pathspec)
-  (declare (ignore pathspec))
-  (%unsupported 'chdir))
 
 (defun call-with-current-directory (pathspec thunk)
   "Call THUNK with PATHSPEC as the process current directory.

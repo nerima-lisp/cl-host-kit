@@ -13,8 +13,6 @@
    #:host-operation-failed-operation
    #:host-operation-failed-target
    #:host-operation-failed-reason
-   #:unsupported-implementation
-   #:unsupported-implementation-feature
    ;; Environment and process lifecycle
    #:getenv
    #:call-with-environment-variables

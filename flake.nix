@@ -1,11 +1,11 @@
 {
-  description = "Dependency-free host-environment toolkit for Common Lisp";
+  description = "SBCL-native host-environment toolkit for Common Lisp";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     cl-weave = {
-      url = "github:nerima-lisp/cl-weave/v1.0.0";
+      url = "github:nerima-lisp/cl-weave/v1.0.1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -32,7 +32,10 @@
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-      sourceRegistry = "${cl-weave}//:${self}//";
+      sourceRegistry = "${cl-weave}/:${self}/";
+      testTimeoutSeconds = 300;
+      benchmarkTimeoutSeconds = 120;
+      timeoutGraceSeconds = 15;
 
       # Single source of truth for the package version: the `:version` form
       # in cl-host-kit.asd. Nix regexes are whole-string anchored and `.`
@@ -127,9 +130,31 @@
               }
               ''
                 export HOME="$TMPDIR/home"
-                mkdir -p "$HOME" "$out"
-                timeout 120 sbcl --script ${self}/run-tests.lisp
+                export XDG_CACHE_HOME="$HOME/cache"
+                export ASDF_OUTPUT_TRANSLATIONS="(:output-translations (t \"$HOME/fasl/\") :ignore-inherited-configuration)"
+                mkdir -p "$XDG_CACHE_HOME" "$HOME/fasl" "$out"
+                timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString testTimeoutSeconds}s sbcl --script ${self}/run-tests.lisp
                 touch "$out/passed"
+              '';
+
+          coverage =
+            pkgs.runCommand "cl-host-kit-coverage"
+              {
+                nativeBuildInputs = [
+                  pkgs.sbcl
+                  pkgs.coreutils
+                ];
+                CL_HOST_KIT_CL_WEAVE_ROOT = "${cl-weave}";
+              }
+              ''
+                unset CL_SOURCE_REGISTRY
+                export HOME="$TMPDIR/home"
+                export XDG_CACHE_HOME="$HOME/cache"
+                export ASDF_OUTPUT_TRANSLATIONS="(:output-translations (t \"$HOME/fasl/\") :ignore-inherited-configuration)"
+                mkdir -p "$XDG_CACHE_HOME" "$HOME/fasl" "$out/coverage"
+                export CL_HOST_KIT_COVERAGE_DIR="$out/coverage"
+                timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString testTimeoutSeconds}s sbcl --script ${self}/run-coverage.lisp
+                test -f "$out/coverage/cover-index.html"
               '';
 
           # Fails `nix flake check` when any tracked file is unformatted,
@@ -155,7 +180,52 @@
             ];
             text = ''
               export CL_SOURCE_REGISTRY="${sourceRegistry}"
-              exec timeout 120 sbcl --script ${self}/run-tests.lisp
+              home_dir="$(mktemp -d "''${TMPDIR:-/tmp}/cl-host-kit-test.XXXXXX")"
+              trap 'rm -rf "$home_dir"' EXIT
+              export HOME="$home_dir"
+              export XDG_CACHE_HOME="$home_dir/cache"
+              export ASDF_OUTPUT_TRANSLATIONS="(:output-translations (t \"$home_dir/fasl/\") :ignore-inherited-configuration)"
+              mkdir -p "$XDG_CACHE_HOME" "$home_dir/fasl"
+              timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString testTimeoutSeconds}s sbcl --script ${self}/run-tests.lisp
+            '';
+          };
+          coverage = pkgs.writeShellApplication {
+            name = "cl-host-kit-coverage";
+            runtimeInputs = [
+              pkgs.sbcl
+              pkgs.coreutils
+            ];
+            text = ''
+              unset CL_SOURCE_REGISTRY
+              export CL_HOST_KIT_CL_WEAVE_ROOT="${cl-weave}"
+              coverage_dir="$(mktemp -d "''${TMPDIR:-/tmp}/cl-host-kit-coverage.XXXXXX")"
+              export HOME="$coverage_dir/home"
+              export XDG_CACHE_HOME="$HOME/cache"
+              export ASDF_OUTPUT_TRANSLATIONS="(:output-translations (t \"$HOME/fasl/\") :ignore-inherited-configuration)"
+              mkdir -p "$XDG_CACHE_HOME" "$HOME/fasl"
+              export CL_HOST_KIT_COVERAGE_DIR="$coverage_dir"
+              timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString testTimeoutSeconds}s sbcl --script ${self}/run-coverage.lisp
+              printf 'Coverage report: %s\\n' "$coverage_dir/cover-index.html"
+            '';
+          };
+          bench = pkgs.writeShellApplication {
+            name = "cl-host-kit-bench";
+            runtimeInputs = [
+              pkgs.sbcl
+              pkgs.coreutils
+              self.packages.${system}.cl-host-kit
+            ];
+            text = ''
+              home_dir="$(mktemp -d "''${TMPDIR:-/tmp}/cl-host-kit-bench.XXXXXX")"
+              trap 'rm -rf "$home_dir"' EXIT
+              export HOME="$home_dir"
+              export XDG_CACHE_HOME="$home_dir/cache"
+              export ASDF_OUTPUT_TRANSLATIONS="(:output-translations (t \"$home_dir/fasl/\") :ignore-inherited-configuration)"
+              export CL_HOST_KIT_FASL_ROOT="${self.packages.${system}.cl-host-kit}/"
+              mkdir -p "$XDG_CACHE_HOME" "$home_dir/fasl"
+              timeout --foreground --kill-after=${toString timeoutGraceSeconds}s ${toString benchmarkTimeoutSeconds}s sbcl \
+                --eval '(let ((fasl-root (or (sb-ext:posix-getenv "CL_HOST_KIT_FASL_ROOT") (error "CL_HOST_KIT_FASL_ROOT is not set")))) (dolist (component (quote ("package" "conditions" "strings" "pathnames" "environment" "working-directory" "filesystem"))) (load (merge-pathnames (format nil "src/~A.fasl" component) fasl-root))))' \
+                --script ${self}/bench/microbench.lisp
             '';
           };
         in
@@ -167,6 +237,14 @@
           test = {
             type = "app";
             program = "${test}/bin/cl-host-kit-test";
+          };
+          coverage = {
+            type = "app";
+            program = "${coverage}/bin/cl-host-kit-coverage";
+          };
+          bench = {
+            type = "app";
+            program = "${bench}/bin/cl-host-kit-bench";
           };
         }
       );

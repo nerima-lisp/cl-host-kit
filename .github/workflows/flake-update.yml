@@ -22,18 +22,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Reuse the shared installer wiring (Cachix self-skips with no cache set),
       # keeping the nix-installer SHA pin in exactly one place.
       - uses: ./.github/actions/nix-setup
 
-      # Opens/refreshes a PR bumping every flake input. NOTE: this uses the
-      # default GITHUB_TOKEN, so GitHub will NOT trigger CI on the bot's PR
-      # (loop-prevention). Re-run CI by pushing an empty commit or closing and
-      # reopening the PR; swap in a PAT via `token:` if self-triggering CI is
-      # required.
-      - name: Update flake.lock
-        uses: DeterminateSystems/update-flake-lock@834c491b2ece4de0bbd00d85214bb5e83b4da5c6 # v28
+      - name: Update and check flake.lock
+        run: |
+          set -euo pipefail
+          nix flake update
+          nix flake check --print-build-logs
+
+      # Commits only the checked flake.lock change; no diff means no PR.
+      - name: Create flake.lock update PR
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          pr-title: "chore: update flake.lock"
-          commit-msg: "chore: update flake.lock"
+          token: ${{ github.token }}
+          add-paths: flake.lock
+          branch: automation/update-flake-lock
+          delete-branch: true
+          commit-message: "chore: update flake.lock"
+          title: "chore: update flake.lock"

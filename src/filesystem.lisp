@@ -5,11 +5,9 @@
 ;;;; PROBE-FILE and CL:DIRECTORY rather than raw sb-posix stat/opendir calls:
 ;;;; PROBE-FILE already normalizes a directory target to directory-form (with
 ;;;; a trailing separator, regardless of how it was spelled), which is
-;;;; exactly the "truthy pathname or NIL" contract every existing call site
-;;;; in the org relies on.
+;;;; the documented "truthy pathname or NIL" contract exposed here.
 (in-package #:host-kit)
 
-#+sbcl
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :sb-posix))
 
@@ -28,46 +26,53 @@ NIL."
 (defun directory-files (pathspec)
   "Return a list of pathnames for the regular files directly inside
 directory PATHSPEC. Non-recursive: subdirectories are excluded."
-  (remove-if #'directory-pathname-p
-             (directory (merge-pathnames (make-pathname :name :wild :type :wild)
-                                          (ensure-directory-pathname pathspec)))))
+  (remove-if
+    #'directory-pathname-p
+    (directory
+      (merge-pathnames
+        (make-pathname :name :wild :type :wild)
+        (ensure-directory-pathname pathspec)))))
 
 (defun subdirectories (pathspec)
   "Return a list of directory-form pathnames for the immediate subdirectories
 of directory PATHSPEC. Non-recursive."
-  (directory (merge-pathnames (make-pathname :directory '(:relative :wild) :name nil :type nil)
-                               (ensure-directory-pathname pathspec))))
+  (directory
+    (merge-pathnames
+      (make-pathname :directory (quote (:relative :wild)) :name nil :type nil)
+      (ensure-directory-pathname pathspec))))
+
+(defun %validate-delete-directory-tree-pathspec (pathspec validate)
+  (when validate
+    (%with-host-operation
+      (:delete-directory-tree pathspec)
+      (unless (directory-pathname-p pathspec)
+        (error "~S does not denote a directory" pathspec)))))
 
 (defun delete-directory-tree (pathspec &key validate (if-does-not-exist :error))
   "Recursively delete the directory PATHSPEC. IF-DOES-NOT-EXIST is :ERROR
 (the default) or :IGNORE, in which case a missing PATHSPEC is treated as
-already-deleted rather than an error. VALIDATE, when true, additionally
-requires PATHSPEC to be a directory-form pathname before anything is
-deleted -- a guard against accidentally passing a bare file pathname."
-  (%with-host-operation (:delete-directory-tree pathspec)
-    (when (and validate (not (directory-pathname-p pathspec)))
-      (error "~S does not denote a directory" pathspec))
-    (let ((pathname (ensure-directory-pathname pathspec)))
+already-deleted rather than an error. VALIDATE, when true, requires the raw
+PATHSPEC to be directory-form before anything is deleted."
+  (%validate-delete-directory-tree-pathspec pathspec validate)
+  (let ((pathname (ensure-directory-pathname pathspec)))
+    (%with-host-operation
+      (:delete-directory-tree pathname)
       (handler-case (sb-ext:delete-directory pathname :recursive t)
-        (file-error ()
-          (unless (eq if-does-not-exist :ignore)
-            (error "~S does not exist" pathname))))))
+        (file-error (condition)
+          (unless (and (eq if-does-not-exist :ignore)
+                       (null (probe-file pathname)))
+            (error condition))))))
   (values))
 
-#+sbcl
 (defun rename-file-overwriting-target (source target)
   "Rename SOURCE to TARGET, atomically replacing TARGET if it already
 exists. Built on POSIX rename(2) (via sb-posix:rename) rather than
 CL:RENAME-FILE, since rename(2) already overwrites its destination
 atomically."
-  (%with-host-operation (:rename-file-overwriting-target (list source target))
+  (%with-host-operation
+    (:rename-file-overwriting-target (list source target))
     (sb-posix:rename (pathname source) (pathname target)))
   (values))
-
-#-sbcl
-(defun rename-file-overwriting-target (source target)
-  (declare (ignore source target))
-  (%unsupported 'rename-file-overwriting-target))
 
 (defun temporary-directory ()
   "Return the system temporary directory as a directory-form pathname,
@@ -207,7 +212,6 @@ unless KEEP evaluates true after successful body evaluation."
         ,@(when attempts `(:attempts ,attempts))
         ,@(when after `(:after #',after-function))))))
 
-#+sbcl
 (defun call-with-atomic-output-file
     (target thunk &key (element-type 'character) (external-format :utf-8))
   "Call THUNK with an output stream and atomically replace TARGET on success.
@@ -238,13 +242,6 @@ fails, TARGET is left unchanged and the temporary file is removed."
       (when temporary-pathname
         (ignore-errors (delete-file temporary-pathname))))))
 
-#-sbcl
-(defun call-with-atomic-output-file
-    (target thunk &key (element-type 'character) (external-format :utf-8))
-  "Signal that atomic output files are unavailable on this implementation."
-  (declare (ignore target thunk element-type external-format))
-  (%unsupported :call-with-atomic-output-file))
-
 (defmacro with-atomic-output-file
     ((stream target &key (element-type ''character) (external-format :utf-8))
      &body body)
@@ -257,14 +254,14 @@ fails, TARGET is left unchanged and the temporary file is removed."
     :external-format ,external-format))
 
 (defun read-file-string (pathspec)
-  "Return the entire contents of the file PATHSPEC as a string."
-  (%with-host-operation (:read-file-string pathspec)
-    (with-open-file (stream pathspec :direction :input :external-format :utf-8)
-      (let ((contents (make-string (file-length stream))))
-        (let ((end (read-sequence contents stream)))
-          (if (= end (length contents))
-              contents
-              (subseq contents 0 end)))))))
+  "Return the entire UTF-8 contents of the file PATHSPEC as a string."
+  (%with-host-operation
+    (:read-file-string pathspec)
+    (with-open-file (stream pathspec :direction :input :element-type (quote (unsigned-byte 8)))
+      (let* ((length (file-length stream))
+             (octets (make-array length :element-type (quote (unsigned-byte 8))))
+             (end (read-sequence octets stream)))
+        (sb-ext:octets-to-string octets :external-format :utf-8 :end end)))))
 
 (defun write-file-string (string pathspec &key (external-format :utf-8))
   "Atomically write STRING to PATHSPEC and return its absolute pathname."
