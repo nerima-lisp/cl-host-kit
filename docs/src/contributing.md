@@ -33,6 +33,13 @@ Or reproducibly, as a Nix derivation (this is what CI runs):
 nix flake check
 ```
 
+To generate a local SBCL coverage report for files under `src/`:
+
+```sh
+nix run .#coverage
+open coverage/cover-index.html
+```
+
 The test system (`cl-host-kit/test`) uses [`cl-weave`](https://github.com/nerima-lisp/cl-weave)
 and lives under `t/`, one test file per `src/` file.
 
@@ -46,17 +53,22 @@ and lives under `t/`, one test file per `src/` file.
 | `src/package.lisp` | The single public package. |
 | `src/conditions.lisp` | `host-kit-error` and its subtypes, and the `%with-host-operation` wrapping macro. |
 | `src/strings.lisp` | `split-string`, `string-prefix-p`. |
-| `src/pathnames.lisp` | Pathname coercion and predicates. |
-| `src/environment.lisp` | `getenv`, `(setf getenv)`, `quit`. |
-| `src/working-directory.lisp` | `getcwd`, `chdir`. |
-| `src/filesystem.lisp` | Existence checks, listing, deletion, renaming, temp directory, file reads. |
+| `src/pathnames.lisp` | Pathname coercion, predicates, and parent-directory calculation. |
+| `src/environment.lisp` | Environment variables, command-line arguments, hostname, and `quit`. |
+| `src/process.lisp` | Program lookup, execution, output capture, and timeout handling. |
+| `src/working-directory.lisp` | `getcwd`, `chdir`, and serialized scoped directory changes. |
+| `src/filesystem-metadata.lisp` | Metadata, symbolic links, permission bits, timestamps, and existence predicates. |
+| `src/directory-operations.lisp` | Directory listing/traversal, creation, deletion, and renaming. |
+| `src/temporary-resources.lisp` | Temporary directory and file lifecycles. |
+| `src/file-io.lisp` | Whole-file reads, line reads, atomic writes, and directory-tree copying. |
+| `src/file-locking.lisp` | Scoped advisory file locks with timeout handling. |
 
 ## Conventions
 
-- **Scope is call-site-driven, not uiop-driven.** Before adding a new
-  function or a new keyword argument to an existing one, check
-  [Compatibility](compatibility.md) — the rule this library follows is "a
-  real call site in nerima-lisp needs it," not "uiop has it."
+- **Keep the public contract direct.** Do not copy UIOP signatures or add
+  compatibility-only keyword arguments. Add a host operation only when its
+  behavior, ownership, failure mode, and tests can be specified independently
+  of UIOP; update [Compatibility](compatibility.md) when it affects migration.
 - **Every OS-facing function wraps failures.** Use the `%with-host-operation`
   macro from `src/conditions.lisp` so failures surface as
   `host-operation-failed` rather than a raw `sb-posix` or `file-error`

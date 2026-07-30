@@ -33,11 +33,17 @@ jobs:
           PACKAGE: cl-host-kit
         run: |
           set -euo pipefail
-          asd_version="$(sed -n 's/^[[:space:]]*:version "\([^"]*\)".*/\1/p' "$PACKAGE.asd" | head -n1)"
+          asd_version="$(perl -ne '
+            if (/^\s*:version "([^"]+)"/) {
+              print "$1\\n";
+              exit;
+            }
+          ' "$PACKAGE.asd")"
           tag_version="${GITHUB_REF_NAME#v}"
           echo "asd=$asd_version tag=$tag_version"
           if [[ "$asd_version" != "$tag_version" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match $PACKAGE.asd version $asd_version" >&2
+            echo "::error::Tag $GITHUB_REF_NAME does not match" \
+              "$PACKAGE.asd version $asd_version" >&2
             exit 1
           fi
 
@@ -56,10 +62,13 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
-            found && /^## / { exit }
-            found { print }
+          VERSION="$version" perl -ne '
+            if (/^## \[\Q$ENV{VERSION}\E\]/) {
+              $found = 1;
+              next;
+            }
+            exit if $found && /^## /;
+            print if $found;
           ' CHANGELOG.md > release-notes.md
           if [[ ! -s release-notes.md ]]; then
             echo "::error::CHANGELOG.md has no section for [$version]" >&2
@@ -69,7 +78,9 @@ jobs:
       # Every `uses:` in this org references a 40-character SHA, never a mutable
       # tag. Re-resolve before bumping, and do not copy a SHA you have not
       # resolved yourself:
-      #   gh api repos/softprops/action-gh-release/git/ref/tags/v2 --jq .object.sha
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+      #   gh api repos/softprops/action-gh-release/git/ref/tags/v2 \
+      #     --jq .object.sha
+      # v2.6.2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           body_path: release-notes.md

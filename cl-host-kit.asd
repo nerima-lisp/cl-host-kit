@@ -1,11 +1,10 @@
 ;;;; cl-host-kit.asd
 (asdf:defsystem "cl-host-kit"
-  :description "Dependency-free host-environment toolkit for Common Lisp: pathnames, filesystem, and environment variables"
-  :long-description "A from-scratch, modern-language-flavored replacement for
-the pathname, filesystem, environment-variable, and string-splitting corner
-of uiop -- covering exactly the subset of that surface nerima-lisp's own
-source code actually calls, with SBCL's sb-posix as the only implementation
-dependency."
+  :description "Dependency-free host-environment toolkit for Common Lisp: pathnames, filesystem, environment variables, and direct program execution"
+  :long-description "A dependency-free, direct host-environment API for
+pathname, filesystem, environment-variable, direct-program-execution, and
+string operations. It is intentionally not source-compatible with uiop and
+uses SBCL's sb-posix as its only implementation dependency."
   :version "0.1.0"
   :author "takeokunn <bararararatty@gmail.com>"
   :maintainer "takeokunn <bararararatty@gmail.com>"
@@ -17,7 +16,8 @@ dependency."
   ;; are implementation dependencies, not external ones"), gated on #+sbcl so
   ;; ASDF does not fail dependency resolution with a confusing "system
   ;; sb-posix not found" on a non-SBCL host; src/environment.lisp and
-  ;; src/filesystem.lisp report a clear unsupported-implementation condition
+  ;; src/filesystem-metadata.lisp and src/directory-operations.lisp report a clear
+  ;; unsupported-implementation condition
   ;; instead. This is cl-host-kit's complete dependency set.
   :depends-on (#+sbcl #:sb-posix)
   :pathname "src"
@@ -27,8 +27,13 @@ dependency."
                (:file "strings")
                (:file "pathnames")
                (:file "environment")
+               (:file "process")
                (:file "working-directory")
-               (:file "filesystem"))
+               (:file "filesystem-metadata")
+               (:file "directory-operations")
+               (:file "temporary-resources")
+               (:file "file-io")
+               (:file "file-locking"))
   :in-order-to ((asdf:test-op (asdf:test-op "cl-host-kit/test"))))
 
 (asdf:defsystem "cl-host-kit/test"
@@ -48,8 +53,14 @@ dependency."
                (:file "strings-test")
                (:file "pathnames-test")
                (:file "environment-test")
+               (:file "process-test")
                (:file "working-directory-test")
-               (:file "filesystem-test"))
+               (:file "filesystem-test-support")
+               (:file "filesystem-metadata-test")
+               (:file "directory-operations-test")
+               (:file "temporary-resources-test")
+               (:file "file-io-test")
+               (:file "file-locking-test"))
   :perform (asdf:test-op (operation component)
              (declare (ignore operation component))
              (unless (funcall (symbol-function (find-symbol "RUN-TESTS" "CL-HOST-KIT/TEST")))

@@ -1,49 +1,71 @@
-# Compatibility with uiop
+# Migrating from uiop
 
-`cl-host-kit` was designed by surveying every `uiop:` call site in every
-`src/` directory across the nerima-lisp org and implementing exactly that
-union — not uiop's full surface. This page states the mapping and, where the
-contract narrows, exactly how.
+`cl-host-kit` is not a UIOP compatibility layer. It exposes a small,
+SBCL-focused host API with its own contracts, direct argument shapes, and
+structured failure conditions. Migrate each call deliberately rather than
+changing a package prefix mechanically.
 
-| uiop | `host-kit` | Notes |
+## Direct replacements
+
+| UIOP operation | `host-kit` operation | Migration note |
 | --- | --- | --- |
-| `uiop:getenv` | `getenv` | Identical: one string argument, string-or-NIL result. |
-| `(setf uiop:getenv)` | `(setf getenv)` | Identical: a `NIL` value unsets the variable. |
-| `uiop:quit` | `quit` | Identical: optional exit code, defaults to 0. |
-| `uiop:getcwd` | `getcwd` | Identical: zero arguments, directory-form pathname result. |
-| `uiop:chdir` | `chdir` | Identical: one pathname-designator argument. |
-| `uiop:absolute-pathname-p` | `absolute-pathname-p` | Identical. |
-| `uiop:directory-pathname-p` | `directory-pathname-p` | Identical. |
-| `uiop:ensure-pathname` | `ensure-pathname` | **Narrowed.** uiop accepts a long tail of keyword arguments (`:want-pathname`, `:want-directory`, `:want-absolute`, ...); no call site in the org uses any of them, so `host-kit:ensure-pathname` takes exactly one argument and behaves like `(pathname designator)`. |
-| `uiop:ensure-directory-pathname` | `ensure-directory-pathname` | Identical: one pathname-designator argument. |
-| `uiop:ensure-absolute-pathname` | `ensure-absolute-pathname` | **Narrowed.** uiop's `:defaults` is accepted only positionally here (matching every org call site), with no other keyword arguments. |
-| `uiop:pathname-directory-pathname` | `pathname-directory-pathname` | Identical. |
-| `uiop:truenamize` | `truenamize` | Identical in observable behavior: resolves symlinks, does not error when the target is missing. |
-| `uiop:file-exists-p` | `file-exists-p` | Identical. |
-| `uiop:directory-exists-p` | `directory-exists-p` | Identical. |
-| `uiop:directory-files` | `directory-files` | Identical: non-recursive, files only. |
-| `uiop:subdirectories` | `subdirectories` | Identical: non-recursive, directories only. |
-| `uiop:delete-directory-tree` | `delete-directory-tree` | Identical: `:validate` and `:if-does-not-exist` are the only keywords any call site uses. |
-| `uiop:rename-file-overwriting-target` | `rename-file-overwriting-target` | Identical in observable behavior (atomic overwrite), built on `sb-posix:rename` (POSIX `rename(2)`) rather than `cl:rename-file`. |
-| `uiop:temporary-directory` | `temporary-directory` | Identical: zero arguments, honors `TMPDIR`. |
-| `uiop:read-file-string` | `read-file-string` | Identical: one argument, whole file as a string. |
-| `uiop:split-string` | `split-string` | **Narrowed.** `:max` is accepted by uiop but used nowhere in the org, so it is not implemented. `:separator` accepts a list of characters or a string (each character an independent delimiter), matching every call site surveyed. |
-| `uiop:string-prefix-p` | `string-prefix-p` | Identical. |
+| `uiop:getenv` | `getenv` | A string name returns a string or `NIL`. |
+| `(setf uiop:getenv)` | `(setf getenv)` | A `NIL` value unsets the variable. |
+| `uiop:command-line-arguments` | `command-line-arguments` | Returns a fresh list without the executable name. |
+| `uiop:hostname` | `hostname` | Returns the implementation's host name. |
+| `uiop:quit` | `quit` | Optional exit code, defaulting to zero. |
+| `uiop:getcwd` | `getcwd` | Returns a directory-form pathname. |
+| `uiop:chdir` | `chdir` | Changes process-global working directory. Prefer `with-working-directory` for scoped use. |
+| `uiop:absolute-pathname-p` | `absolute-pathname-p` | Direct predicate. |
+| `uiop:directory-pathname-p` | `directory-pathname-p` | Direct predicate. |
+| `uiop:ensure-pathname` | `ensure-pathname` | Only the pathname designator is accepted. |
+| `uiop:ensure-directory-pathname` | `ensure-directory-pathname` | Direct pathname conversion. |
+| `uiop:ensure-absolute-pathname` | `ensure-absolute-pathname` | Optional defaults is positional; no UIOP keyword options are accepted. |
+| `uiop:pathname-directory-pathname` | `pathname-directory-pathname` | Strips name and type. |
+| `uiop:pathname-parent-directory-pathname` | `parent-directory-pathname` | The name is intentionally shorter; a filesystem root is its own parent. |
+| `uiop:truenamize` | `truenamize` | Resolves existing parents without failing for a missing leaf. |
+| `uiop:file-exists-p` | `file-exists-p` | Returns a truename for regular files, otherwise `NIL`. |
+| `uiop:directory-exists-p` | `directory-exists-p` | Returns a truename for directories, otherwise `NIL`. |
+| `uiop:directory-files` | `directory-files` | Lexical-order direct regular-file listing, including dotfiles. |
+| `uiop:subdirectories` | `subdirectories` | Lexical-order direct directory listing, including dot-directories. |
+| `uiop:delete-file-if-exists` | `delete-file-if-exists` | Deletes only a regular file and returns a generalized boolean. |
+| `uiop:delete-empty-directory` | `delete-empty-directory` | Removes an empty directory; a nonempty directory signals a host error. |
+| `uiop:delete-directory-tree` | `delete-directory-tree` | Supports only `:validate` and `:if-does-not-exist`. |
+| `uiop:rename-file-overwriting-target` | `(move-path source target :if-exists :supersede)` | Explicitly opts into POSIX replacement semantics. |
+| `uiop:temporary-directory` | `temporary-directory` | Honors a non-empty absolute `TMPDIR`; otherwise uses `/tmp/`. |
+| `uiop:read-file-string` | `read-file-string` | Reads the whole file. |
+| `uiop:read-file-lines` | `read-file-lines` | Reads text lines, with optional `:external-format`. |
+| `uiop:copy-file` | `copy-file` | Uses an atomic target and requires `:if-exists :supersede` to replace. |
+| `uiop:split-string` | `split-string` | `:separator` accepts characters, a string, or one character; `:max` is not supported. |
+| `uiop:string-prefix-p` | `string-prefix-p` | Direct predicate. |
 
-## Deliberately out of scope
+## Process boundary
 
-**Process launching** (`uiop:run-program`, `uiop:launch-program`,
-`uiop:process-alive-p`, and friends) is not implemented here. That is
-[`cl-process-kit`](https://github.com/nerima-lisp/cl-process-kit)'s domain,
-and it already covers this ground with a timeout-aware, process-group-safe
-API well beyond uiop's original scope.
+Replace a synchronous `uiop:run-program` call with
+`(run-program program arguments ...)`, where `program` is a path or executable
+name and `arguments` is a list of strings. The command is always executed
+without a shell, stdout and stderr are captured, the default deadline is 30
+seconds, and nonzero exits remain result data. Call `ensure-program-success`
+where a nonzero exit must signal an error.
 
-**`uiop:command-line-arguments`** is not implemented. The one call site that
-used it (`cl-cli`) only reaches it on non-SBCL implementations, which
-nerima-lisp does not support — the code path is unreachable dead code, not a
-real dependency to replace.
+`launch-program`, `wait-process`, `terminate-process`, `process-alive-p`, and
+other asynchronous lifecycle APIs are intentionally absent. Use
+[`cl-process-kit`](https://github.com/nerima-lisp/cl-process-kit) for process
+handles, supervision, or concurrent process orchestration.
 
-**`uiop:with-temporary-file`** is not implemented in this release: every use
-of it across the org is in test code, not production `src/`, which was this
-release's scope. It is a natural candidate for a future release once a
-production call site needs it.
+## Temporary files
+
+Use `call-with-temporary-file` or `with-temporary-file` instead of preserving
+the UIOP macro shape. HOST-KIT's forms bind a stream and pathname, close the
+stream on every exit path, and remove the file unless `:keep` is true (or its
+zero-argument predicate returns true after normal completion). Use
+`call-with-temporary-directory` or `with-temporary-directory` for the matching
+directory lifecycle.
+
+## Failure handling
+
+OS-facing operations signal `host-operation-failed` rather than raw UIOP,
+`sb-posix`, or `file-error` conditions. Process deadline and exit-boundary
+failures are represented by `process-timeout` and `process-exit-error`.
+Catch their common superclass, `host-kit-error`, when the caller needs one
+library-level failure boundary.

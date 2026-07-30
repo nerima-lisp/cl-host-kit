@@ -1,11 +1,8 @@
 ;;;; src/strings.lisp
 ;;;;
-;;;; Two string helpers, scoped to exactly how the rest of nerima-lisp calls
-;;;; them today (see the org-wide call-site survey in the design notes):
-;;;; SPLIT-STRING never receives a :MAX argument anywhere in the org, and its
-;;;; :SEPARATOR is always a bag of individual delimiter characters (a list of
-;;;; characters, or a string treated as one), never a multi-character
-;;;; delimiter sequence. STRING-PREFIX-P is the plain two-argument predicate.
+;;;; Small, dependency-free string primitives.  Delimiters remain explicit:
+;;;; SPLIT-STRING treats its separator as a bag of independent characters,
+;;;; never as a multi-character delimiter sequence.
 (in-package #:host-kit)
 
 (defun %separator-characters (separator)
@@ -35,3 +32,26 @@ the behavior response-file and line-oriented callers in this org rely on."
   (let ((prefix-length (length prefix)))
     (and (<= prefix-length (length string))
          (string= prefix string :end2 prefix-length))))
+
+(defun string-suffix-p (suffix string)
+  "True when STRING ends with SUFFIX."
+  (let ((suffix-length (length suffix))
+        (string-length (length string)))
+    (and (<= suffix-length string-length)
+         (string= suffix string :start2 (- string-length suffix-length)))))
+
+(defun join-strings (strings &key (separator ""))
+  "Join every string in the sequence STRINGS with SEPARATOR.
+
+An empty sequence produces the empty string.  Each element must be a string;
+values are never implicitly converted with PRINC."
+  (check-type strings sequence)
+  (check-type separator string)
+  (with-output-to-string (output)
+    (loop with firstp = t
+          for string across (coerce strings 'vector)
+          do (unless firstp
+               (write-string separator output))
+             (check-type string string)
+             (write-string string output)
+             (setf firstp nil))))
