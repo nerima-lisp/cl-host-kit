@@ -108,6 +108,27 @@
             (char= character separator))))
       :to-be-truthy)))
 
+(describe
+  "string-prefix-p / string-suffix-p properties"
+  (it-property
+      "any PREFIX/SUFFIX concatenation has PREFIX as a prefix and SUFFIX as a suffix"
+      ((prefix (gen-string :min-length 0 :max-length 12))
+       (suffix (gen-string :min-length 0 :max-length 12)))
+    (let ((joined (concatenate 'string prefix suffix)))
+      (expect (string-prefix-p prefix joined) :to-be-truthy)
+      (expect (string-suffix-p suffix joined) :to-be-truthy))))
+
+(describe
+  "split-string / join-strings round trip"
+  (it-property
+      "joining SPLIT-STRING's segments with the same separator reconstructs the original string"
+      ((separator (gen-character :alphabet ",;: "))
+       (content (gen-string :min-length 0 :max-length 40 :alphabet "abc,;: ")))
+    (expect
+      (join-strings (split-string content :separator separator) :separator (string separator))
+      :to-equal
+      content)))
+
 (describe "string-suffix-p"
   (it "is true when STRING ends with SUFFIX"
     (expect (string-suffix-p "bc" "abc") :to-be-truthy))

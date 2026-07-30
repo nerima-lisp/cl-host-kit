@@ -258,10 +258,10 @@
         (expect
           (multiple-value-list
             (call-with-atomic-output-file
-              target
               (lambda (stream)
                 (write-string "new" stream)
-                (values :first :second))))
+                (values :first :second))
+              target))
           :to-equal
           '(:first :second))
         (expect (read-file-string target) :to-equal "new"))))
@@ -274,10 +274,10 @@
         (signals
           error
           (call-with-atomic-output-file
-            target
             (lambda (stream)
               (write-string "partial" stream)
-              (error "expected test failure"))))
+              (error "expected test failure"))
+            target))
         (expect (read-file-string target) :to-equal "old")
         (expect
           (mapcar #'file-namestring (directory-files scratch))
@@ -292,16 +292,16 @@
         (signals
           type-error
           (call-with-atomic-output-file
-            target
             (lambda (stream)
               (declare (ignore stream)))
+            target
             :synchronize :invalid))
         (signals
           type-error
           (call-with-atomic-output-file
-            target
             (lambda (stream)
               (declare (ignore stream)))
+            target
             :if-exists :invalid))
         (expect (read-file-string target) :to-equal "old"))))
   (it
@@ -313,9 +313,9 @@
         (signals
           error
           (call-with-atomic-output-file
-            target
             (lambda (stream)
               (write-string "new" stream))
+            target
             :if-exists :error))
         (expect (read-file-string target) :to-equal "old")
         (expect (mapcar #'file-namestring (directory-files scratch))
@@ -349,11 +349,10 @@
           (stream target :synchronize t)
           (write-string "macro" stream))
         (expect (read-file-string target) :to-equal "macro"))))
-  (it
-    "rejects invalid stream bindings during macroexpansion"
-    (signals error (macroexpand-1 '(with-atomic-output-file (42 "ignored") nil)))
-    (signals error (macroexpand-1 '(with-atomic-output-file (nil "ignored") nil)))
-    (signals error (macroexpand-1 '(with-atomic-output-file (t "ignored") nil))))
+  (it-each ((42) (nil) (t))
+      "rejects ~S as a stream binding during macroexpansion"
+      (invalid-stream)
+    (signals error (macroexpand-1 `(with-atomic-output-file (,invalid-stream "ignored") nil))))
   (it
     "forwards existing-target policy through the macro"
     (with-scratch-directory
@@ -599,10 +598,9 @@
             (make-array 3 :element-type '(unsigned-byte 8) :initial-contents '(4 5 255))))
         (ensure-directory-tree empty)
         (write-file-octets octets payload)
-        (progn
-          (set-file-mode source #o750)
-          (set-file-mode nested #o750)
-          (set-file-mode payload #o640))
+        (set-file-mode source #o750)
+        (set-file-mode nested #o750)
+        (set-file-mode payload #o640)
         (create-symbolic-link "does-not-exist" link)
         (expect
           (copy-directory-tree source target :synchronize t)

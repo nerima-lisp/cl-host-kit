@@ -1,181 +1,10 @@
 ;;;; src/process.lisp
 ;;;;
-;;;; A small direct SBCL process API. It accepts an argv list rather than
-;;;; shell text, and drains both output pipes concurrently.
+;;;; RUN-PROGRAM and its CPS scope macros: a small direct SBCL process API
+;;;; that accepts an argv list rather than shell text. Orchestrates
+;;;; PROCESS-RESULT (process-result.lisp) and the concurrent capture engine
+;;;; (process-io.lisp) into the public entry points.
 (in-package #:host-kit)
-
-(defconstant +default-command-timeout-seconds+ 30d0
-  "Default wall-clock timeout used by RUN-PROGRAM.")
-
-(defconstant +default-command-output-limit+ (* 1024 1024))
-
-(defstruct process-result "Terminal data captured by RUN-PROGRAM. A non-zero EXIT-CODE is data, not
-an error; TIMEOUT is reported separately by PROCESS-TIMEOUT."
-  program
-  arguments
-  exit-code
-  signal
-  (stdout "" :type string)
-  (stderr "" :type string)
-  timed-out-p
-  stdout-truncated-p
-  stderr-truncated-p)
-
-(defun %validate-expected-exit-codes (expected-exit-codes)
-  (check-type expected-exit-codes list)
-  (let ((exit-code-count (list-length expected-exit-codes)))
-    (unless (and exit-code-count (plusp exit-code-count))
-      (error
-        (quote type-error)
-        :datum
-        expected-exit-codes
-        :expected-type
-        (quote list))))
-  (dolist (exit-code expected-exit-codes)
-    (check-type exit-code (integer 0 *)))
-  expected-exit-codes)
-
-(defun ensure-program-success (result &key (expected-exit-codes '(0)))
-  "Return RESULT when its exit code is expected, otherwise signal PROCESS-EXIT-ERROR.
-EXPECTED-EXIT-CODES is a list of non-negative integer exit codes."
-  (check-type result process-result)
-  (%validate-expected-exit-codes expected-exit-codes)
-  (unless (member (process-result-exit-code result) expected-exit-codes :test #'eql)
-    (error
-      'process-exit-error
-      :program
-      (process-result-program result)
-      :arguments
-      (process-result-arguments result)
-      :exit-code
-      (process-result-exit-code result)
-      :signal
-      (process-result-signal result)
-      :expected-exit-codes
-      expected-exit-codes
-      :result
-      result))
-  result)
-
-(defun %colon-separated-directories (path)
-  "Split PATH on #\\: into a list of substrings, preserving empty elements."
-  (loop with start = 0
-        for colon = (position #\: path :start start)
-        collect (subseq path start colon)
-        while colon
-        do (setf start (1+ colon))))
-
-(defun find-program (program &key (path (getenv "PATH")))
-  "Return the executable pathname for PROGRAM, or NIL when none is found.
-PROGRAM may be an explicit path or a bare file name. Bare names are searched
-through the colon-separated PATH string; an empty PATH element denotes the
-current directory."
-  (check-type program string)
-  (check-type path (or null string))
-  (cond
-    ((find #\/ program)
-     (file-executable-p program))
-    ((null path) nil)
-    (t
-     (loop for directory in (%colon-separated-directories path)
-           for candidate = (merge-pathnames program
-                                            (if (string= directory "")
-                                                (ensure-directory-pathname
-                                                 (sb-posix:getcwd))
-                                                (ensure-directory-pathname directory)))
-           for executable = (file-executable-p candidate)
-           when executable return executable))))
-
-(progn
-  (eval-when (:compile-toplevel :load-toplevel :execute)
-    (require :sb-posix))
-
-  (defstruct (%output-capture (:constructor %make-output-capture))
-    stream
-    owner
-    thread
-    (truncated-p nil)
-    (abandoned-p nil)
-    (stop-requested-p nil)
-    condition)
-
-  (defvar *active-output-captures* nil)
-  (defvar *active-output-captures-lock*
-    (sb-thread:make-mutex :name "cl-host-kit active output captures"))
-
-  (defun %register-output-capture (capture)
-    (sb-thread:with-mutex (*active-output-captures-lock*)
-      (push capture *active-output-captures*))
-    capture)
-
-  (defun %unregister-output-capture (capture)
-    (sb-thread:with-mutex (*active-output-captures-lock*)
-      (setf *active-output-captures*
-            (delete capture *active-output-captures* :test (function eq)))))
-
-  (defun %record-output-capture-condition (capture condition)
-    (sb-thread:with-mutex (*active-output-captures-lock*)
-      (setf (%output-capture-condition capture) condition)))
-
-  (defun %output-capture-failed-p (owner)
-    (sb-thread:with-mutex (*active-output-captures-lock*)
-      (some (lambda (capture)
-              (and (eq (%output-capture-owner capture) owner)
-                   (%output-capture-condition capture)))
-            *active-output-captures*))))
-
-(defun %start-output-capture (stream limit name &optional consumer)
-  (let ((sink (make-string-output-stream))
-        (capture nil)
-        (count 0)
-        (fd (sb-sys:fd-stream-fd stream)))
-    (labels ((capture-character ()
-               (let ((character (read-char stream nil nil)))
-                 (unless character
-                   (return-from capture-character nil))
-                 (if consumer (funcall consumer character)
-                     (if (< count limit) (progn
-                                          (write-char character sink)
-                                          (incf count))
-                         (setf (%output-capture-truncated-p capture) t)))
-                 t)))
-      (setf capture (%make-output-capture :stream stream :owner sb-thread:*current-thread*))
-      (%register-output-capture capture)
-      (setf (%output-capture-thread capture) (sb-thread:make-thread
-          (lambda ()
-            (handler-case (loop (cond
-                                  ((listen stream)
-                                   (unless (capture-character)
-                                     (return)))
-                                  ((%output-capture-stop-requested-p capture) (return))
-                                  ((sb-sys:wait-until-fd-usable fd :input 0.02d0)
-                                   (unless (capture-character)
-                                     (return)))))
-              (error (condition)
-                (%record-output-capture-condition capture condition))))
-          :name name))
-      (values capture sink))))
-
-(defun %finish-output-capture (capture sink)
-  (unwind-protect
-       (let ((thread (%output-capture-thread capture)))
-         ;; A descendant can retain this descriptor after its direct parent exits.
-         (when (eq (sb-thread:join-thread thread
-                                          :timeout 0.05d0
-                                          :default :timed-out)
-                   :timed-out)
-           (setf (%output-capture-abandoned-p capture) t
-                 (%output-capture-stop-requested-p capture) t)
-           ;; The capture loop polls its descriptor, so this wait is bounded too.
-           (sb-thread:join-thread thread :timeout 0.1d0 :default :timed-out))
-         (ignore-errors (close (%output-capture-stream capture)))
-         (let ((condition (%output-capture-condition capture)))
-           (when (and condition (not (%output-capture-abandoned-p capture)))
-             (error condition)))
-         (get-output-stream-string sink))
-    (%unregister-output-capture capture)))
-
-
 
 (progn
   (defun %validate-proper-list (value)
@@ -260,38 +89,6 @@ consumer failed and STOP-WHEN-OUTPUT-FAILS-P is true, or :TIMED-OUT."
   (unless (eq (%wait-for-process process 1d0) :completed)
     (ignore-errors (sb-posix:kill target sb-posix:sigkill)))
   (sb-ext:process-wait process))
-
-(defstruct (%input-producer (:constructor %make-input-producer)) stream
-  thread
-  condition)
-
-(defun %start-input-producer (stream writer)
-  (let ((producer (%make-input-producer :stream stream)))
-    (setf (%input-producer-thread producer) (sb-thread:make-thread
-        (lambda ()
-          (unwind-protect (handler-case (funcall writer stream)
-              (error (condition)
-                (setf (%input-producer-condition producer) condition)))
-            (ignore-errors (close stream))))
-        :name
-        "cl-host-kit program input"))
-    producer))
-
-(defun %finish-input-producer (producer &key (timeout 0.1d0))
-  "Close PRODUCER input and wait at most TIMEOUT seconds for its worker.
-The caller cannot safely terminate arbitrary Common Lisp code, so an input
-callback that ignores its closed stream is detached after this bounded grace."
-  (when producer
-    (ignore-errors (close (%input-producer-stream producer)))
-    (unless (eq
-        (sb-thread:join-thread
-          (%input-producer-thread producer)
-          :timeout
-          timeout
-          :default
-          :timed-out)
-        :timed-out)
-      (%input-producer-condition producer))))
 
 (progn
   (defun %make-program-input-stream (input input-writer)
@@ -516,9 +313,6 @@ is captured concurrently and bounded by MAX-OUTPUT-CHARACTERS per channel."
                   :max-output-characters max-output-characters))
 
   (eval-when (:compile-toplevel :load-toplevel :execute)
-    (defun %macro-variable-name-p (name)
-      (and (symbolp name) (not (constantp name))))
-
     (defun %parse-program-input-clause (clause)
       (unless (and
                (consp clause)
@@ -582,16 +376,7 @@ form (:OUTPUT (CHANNEL CHARACTER) . BODY)."
   (check-type thunk function)
   (funcall thunk (apply #'run-program program arguments options)))
 
-(defmacro with-program-result ((result program arguments &rest options) &body body)
-  "Evaluate BODY with RESULT lexically bound to RUN-PROGRAM's result."
-  (unless (and (symbolp result) (not (constantp result)))
-    (error "RESULT must be a non-constant symbol: ~S" result))
-  `(call-with-program-result
-    (lambda (,result)
-      ,@body)
-    ,program
-    ,arguments
-    ,@options))
+(define-with-macro with-program-result (result) call-with-program-result)
 
 (progn
   (defun call-with-program-output (thunk program arguments &key input

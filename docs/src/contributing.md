@@ -85,10 +85,13 @@ and lives under `t/`, one test file per `src/` file.
 | --- | --- |
 | `src/package.lisp` | The single public package. |
 | `src/conditions.lisp` | `host-kit-error` and its subtypes, and the `%with-host-operation` wrapping macro. |
+| `src/with-macros.lisp` | `define-with-macro`, the macro-defining-macro every `WITH-X` scope macro is generated from. |
 | `src/strings.lisp` | `split-string`, `string-prefix-p`. |
 | `src/pathnames.lisp` | Pathname coercion, predicates, and parent-directory calculation. |
 | `src/environment.lisp` | Environment variables, command-line arguments, hostname, and `quit`. |
-| `src/process.lisp` | Program lookup, execution, output capture, and timeout handling. |
+| `src/process-result.lisp` | The `process-result` data model, exit-code validation, and PATH-based program lookup. |
+| `src/process-io.lisp` | The concurrent stdout/stderr capture and stdin production engine `process.lisp` orchestrates. |
+| `src/process.lisp` | `run-program` and its `WITH-X` scope macros: the public process-execution API. |
 | `src/working-directory.lisp` | `getcwd`, `chdir`, and serialized scoped directory changes. |
 | `src/filesystem-metadata.lisp` | Metadata, symbolic links, permission bits, timestamps, and existence predicates. |
 | `src/directory-operations.lisp` | Directory listing/traversal, creation, deletion, and renaming. |
@@ -106,6 +109,31 @@ and lives under `t/`, one test file per `src/` file.
   macro from `src/conditions.lisp` so failures surface as
   `host-operation-failed` rather than a raw `sb-posix` or `file-error`
   condition.
+- **Generate `WITH-X` scope macros, don't hand-write them.** A `CALL-WITH-X`
+  thunk-passing function gets its `WITH-X` macro from `define-with-macro`
+  (`src/with-macros.lisp`) rather than a bespoke `defmacro`, so the lexical
+  bindings, the non-constant-symbol diagnostic, and keyword forwarding are
+  written once. Reach for a hand-written macro only when a scope reuses one of
+  its own bound variables as a forwarded argument (see
+  `with-advisory-file-lock`), which does not fit that shape.
+- **CALL-WITH-X is the continuation-passing core; WITH-X is sugar over it.**
+  Every scoped resource (a temporary file, a working directory, a held lock,
+  a captured environment binding) is implemented once as a `CALL-WITH-X`
+  function that takes a thunk (the continuation) and guarantees its
+  unwind-protected cleanup runs whichever way the thunk exits; the `WITH-X`
+  macro only wraps a lexical body into that thunk. Add the CPS function
+  first, then let `define-with-macro` derive the macro -- never the reverse.
+- **Separate the data a module operates on from the logic that operates on
+  it, and split the file when that separation gets large.** `process.lisp`
+  is the reference case: `process-result.lisp` holds the `process-result`
+  struct and PATH lookup (the data model), `process-io.lisp` holds the
+  concurrent capture/production engine (self-contained logic with no
+  awareness of `run-program`'s orchestration), and `process.lisp` holds only
+  the orchestration and public API. A struct paired immediately with the
+  handful of functions that construct and query it (`file-metadata`,
+  `process-result` itself) does not need this split; reach for it once a
+  module's registry/struct machinery and its decision logic have each grown
+  large enough to be independently readable.
 - **SBCL-native implementation.** Use SBCL and its `sb-posix` contrib
   directly. Do not add portability shims or fallback implementations.
 - **Zero external dependencies.** The main system depends on nothing beyond

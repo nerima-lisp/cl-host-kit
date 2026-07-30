@@ -34,9 +34,9 @@
             "/nope"
             :reason
             "no such directory")))
-      (expect (format nil "~A" condition) :to-match "CHDIR")
-      (expect (format nil "~A" condition) :to-match "/nope")
-      (expect (format nil "~A" condition) :to-match "no such directory")))
+      (expect (princ-to-string condition) :to-match "CHDIR")
+      (expect (princ-to-string condition) :to-match "/nope")
+      (expect (princ-to-string condition) :to-match "no such directory")))
   (it
     "is a subtype of HOST-KIT-ERROR"
     (expect (subtypep 'host-operation-failed 'host-kit-error) :to-be-truthy)))
@@ -83,7 +83,7 @@
             :target nil
             :reason "failure")))
       (expect
-        (format nil "~A" condition)
+        (princ-to-string condition)
         :to-equal
         "HOST-KIT operation :GETCWD failed: failure"))))
 
@@ -102,8 +102,8 @@
       (expect (process-exit-error-signal condition) :to-equal 15)
       (expect (process-exit-error-expected-exit-codes condition) :to-equal '(0))
       (expect (process-exit-error-result condition) :to-equal :opaque-result)
-      (expect (format nil "~A" condition) :to-match "signal 15")
-      (expect (format nil "~A" condition) :not :to-match "opaque-result")))
+      (expect (princ-to-string condition) :to-match "signal 15")
+      (expect (princ-to-string condition) :not :to-match "opaque-result")))
 
   (it "reports a nonzero exit code when no signal terminated the process"
     (let ((condition (make-condition 'process-exit-error
@@ -113,7 +113,7 @@
                                      :signal nil
                                      :expected-exit-codes '(0)
                                      :result nil)))
-      (expect (format nil "~A" condition) :to-match "code 1")))
+      (expect (princ-to-string condition) :to-match "code 1")))
 
   (it "reports a program timeout and retains command details"
     (let ((condition (make-condition 'process-timeout
@@ -125,12 +125,12 @@
       (expect (process-timeout-arguments condition) :to-equal '("1"))
       (expect (process-timeout-seconds condition) :to-equal 0.125)
       (expect (process-timeout-result condition) :to-equal :result)
-      (expect (format nil "~A" condition) :to-match "0.125")))
+      (expect (princ-to-string condition) :to-match "0.125")))
 
   (it "reports advisory lock acquisition timeouts"
     (let ((condition (make-condition 'file-lock-timeout :seconds 2.5)))
       (expect (file-lock-timeout-seconds condition) :to-equal 2.5)
-      (expect (format nil "~A" condition) :to-match "2.500")))
+      (expect (princ-to-string condition) :to-match "2.500")))
 
   (it "keeps every concrete condition under HOST-KIT-ERROR"
     (dolist (type '(process-exit-error process-timeout file-lock-timeout))
@@ -157,10 +157,10 @@
           do
              (let ((position (search marker reference :start2 start)))
                (unless position
-                 (return nil))
+                 (return))
                (let ((boundary (+ position (length marker))))
                  (when (or (= boundary limit)
-                           (char= (char reference boundary) (code-char 41))
+                           (char= (char reference boundary) #\))
                            (find (char reference boundary)
                                  (list #\Space #\Tab #\Newline #\Return)))
                    (return t))

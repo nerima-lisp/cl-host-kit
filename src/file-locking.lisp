@@ -108,7 +108,7 @@
           (setf (%held-advisory-file-lock-owners held-lock)
                 (delete owner (%held-advisory-file-lock-owners held-lock)
                         :test #'eq :count 1))
-          (when (null (%held-advisory-file-lock-owners held-lock))
+          (unless (%held-advisory-file-lock-owners held-lock)
             (setf *held-advisory-file-locks*
                   (delete held-lock *held-advisory-file-locks*))
             t))))))
@@ -175,12 +175,9 @@
               timeout mode lock-start)
              (setf lock-acquired-p t)
              (funcall thunk stream))
-        (unwind-protect
-             (when (%release-advisory-file-lock-reservation identity fd)
-               (when lock-acquired-p
-                 (%release-advisory-file-lock
+        (when (and (%release-advisory-file-lock-reservation identity fd) lock-acquired-p) (%release-advisory-file-lock
                   (%held-advisory-file-lock-fd held-lock)
-                  (%held-advisory-file-lock-lock-start held-lock))))))))
+                  (%held-advisory-file-lock-lock-start held-lock))))))
 
   (defun %call-with-reserved-advisory-file-lock
       (thunk stream identity fd lock-start mode wait timeout status deadline held-lock)
@@ -227,9 +224,10 @@ on every exit path."
                                      &body body)
     "Evaluate BODY while holding a MODE advisory lock on STREAM.
 
-TIMEOUT has the same bounded-wait semantics as CALL-WITH-ADVISORY-FILE-LOCK."
-    (unless (and (symbolp stream) (not (constantp stream)))
-      (error "STREAM must be a non-constant symbol: ~S" stream))
+TIMEOUT has the same bounded-wait semantics as CALL-WITH-ADVISORY-FILE-LOCK.
+STREAM names an already-open stream, reused (not newly introduced) as BODY's
+binding, so this scope does not fit DEFINE-WITH-MACRO's fresh-binding shape."
+    (%validate-bound-variables (list stream))
     `(call-with-advisory-file-lock
       (lambda (,stream)
         ,@body)
@@ -262,19 +260,5 @@ CALL-WITH-ADVISORY-FILE-LOCK with a supplied stream for nested locking."
                                         :timeout timeout
                                         :mode mode)))))
 
-  (defmacro with-file-lock ((stream pathspec
-                             &key (wait t) timeout (mode :exclusive))
-                            &body body)
-    "Evaluate BODY while holding a MODE advisory lock for PATHSPEC.
-
-TIMEOUT has the same bounded-wait semantics as CALL-WITH-FILE-LOCK."
-    (unless (and (symbolp stream) (not (constantp stream)))
-      (error "STREAM must be a non-constant symbol: ~S" stream))
-    `(call-with-file-lock
-      (lambda (,stream)
-        ,@body)
-      ,pathspec
-      :wait ,wait
-      :timeout ,timeout
-      :mode ,mode)))
+  (define-with-macro with-file-lock (stream) call-with-file-lock))
 

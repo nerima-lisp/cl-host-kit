@@ -441,7 +441,7 @@ locks.
     true, a successful output stream is flushed and `fsync`ed before it closes.
 - **`(with-temporary-file (stream pathname &key directory prefix suffix keep direction element-type external-format attempts synchronize) &body body)`**
   — Lexically scoped macro form of `call-with-temporary-file`.
-- **`(call-with-atomic-output-file target thunk &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede))`**
+- **`(call-with-atomic-output-file thunk target &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede))`**
   — Call `thunk` with an output stream, then atomically replace `target` only
   after the stream closes successfully. Failures leave the old target intact;
   replacing an existing regular file preserves its access permission bits.

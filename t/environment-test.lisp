@@ -389,7 +389,7 @@
           (mapcar
             (lambda (file)
               (namestring (merge-pathnames file source-directory)))
-            '("src/package.lisp" "src/conditions.lisp" "src/environment.lisp")))
+            '("src/package.lisp" "src/conditions.lisp" "src/with-macros.lisp" "src/environment.lisp")))
            (form
           (format
             nil

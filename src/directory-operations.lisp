@@ -49,22 +49,11 @@ HOST-OPERATION-FAILED."
                       while (and entry (not (sb-alien:null-alien entry)))
                       for name = (sb-posix:dirent-name entry)
                       unless (member name (quote ("." "..")) :test (function string=))
-                        do (return nil)
+                        do (return)
                       finally (return t))
              (sb-posix:closedir stream))))))
 
-(defmacro with-directory-entries ((pathname metadata pathspec &key (follow-symlinks nil)) &body body)
-  "Lexically bind PATHNAME and METADATA while enumerating PATHSPEC's entries."
-  (unless (%macro-variable-name-p pathname)
-    (error "PATHNAME must be a non-constant symbol: ~S" pathname))
-  (unless (%macro-variable-name-p metadata)
-    (error "METADATA must be a non-constant symbol: ~S" metadata))
-  `(call-with-directory-entries
-    (lambda (,pathname ,metadata)
-      ,@body)
-    ,pathspec
-    :follow-symlinks
-    ,follow-symlinks))
+(define-with-macro with-directory-entries (pathname metadata) call-with-directory-entries)
 
 (defun directory-files (pathspec &key (follow-symlinks nil))
   "Return direct regular files in PATHSPEC in lexical order.
@@ -158,23 +147,7 @@ has depth zero."
       (%walk-directory-tree thunk root 0 follow-symlinks max-depth visited))
     (values)))
 
-(defmacro with-directory-tree
-    ((pathname metadata depth pathspec &key (follow-symlinks nil) max-depth) &body body)
-  "Lexically bind PATHNAME, METADATA, and DEPTH while walking PATHSPEC."
-  (unless (%macro-variable-name-p pathname)
-    (error "PATHNAME must be a non-constant symbol: ~S" pathname))
-  (unless (%macro-variable-name-p metadata)
-    (error "METADATA must be a non-constant symbol: ~S" metadata))
-  (unless (%macro-variable-name-p depth)
-    (error "DEPTH must be a non-constant symbol: ~S" depth))
-  `(call-with-directory-tree
-    (lambda (,pathname ,metadata ,depth)
-      ,@body)
-    ,pathspec
-    :follow-symlinks
-    ,follow-symlinks
-    :max-depth
-    ,max-depth))
+(define-with-macro with-directory-tree (pathname metadata depth) call-with-directory-tree)
 
 (defun ensure-directory-tree (pathspec)
   "Create PATHSPEC and every missing parent directory, then return its truename.
@@ -253,11 +226,9 @@ as links. IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE."
                     (sb-posix:unlink entry-namestring)
                     t)))
           (sb-posix:syscall-error (condition)
-            (if (and (eq if-does-not-exist :ignore)
+            (unless (and (eq if-does-not-exist :ignore)
                      (member (sb-posix:syscall-errno condition)
-                             (list sb-posix:enoent sb-posix:enotdir)))
-                nil
-                (error condition))))))))
+                             (list sb-posix:enoent sb-posix:enotdir))) (error condition))))))))
 
 (defun delete-directory-tree (pathspec &key validate (if-does-not-exist :error))
   "Recursively delete directory PATHSPEC.
@@ -354,29 +325,28 @@ against a concurrent creator."
         (%move-path-by-renaming-or-copying source target if-exists))
       target)))
 
-(progn
-  (defun create-directory (pathspec &key (mode #o777) (if-exists :error))
-    "Create one directory at PATHSPEC without creating missing parents.
+(defun create-directory (pathspec &key (mode #o777) (if-exists :error))
+  "Create one directory at PATHSPEC without creating missing parents.
 MODE is an integer from 0 through #o7777 and is filtered by the process umask.
 IF-EXISTS is :ERROR (the default) or :IGNORE. With :IGNORE, an existing
 directory is returned; every other existing entry still signals
 HOST-OPERATION-FAILED. Return the created or existing directory's truename."
-    (check-type mode (integer 0 #o7777))
-    (check-type if-exists (member :error :ignore))
-    (let ((pathname (ensure-directory-pathname pathspec)))
-      (%with-host-operation
-        (:create-directory pathname)
-        (handler-case
-            (sb-posix:mkdir (namestring pathname) mode)
-          (sb-posix:syscall-error (condition)
-            (let ((existing (directory-exists-p pathname)))
-              (if (and (eq if-exists :ignore)
-                       (= (sb-posix:syscall-errno condition) sb-posix:eexist)
-                       existing)
-                  (return-from create-directory existing)
-                  (error condition))))))
-      (or (directory-exists-p pathname)
-          (error "Unable to create directory ~S" pathname)))))
+  (check-type mode (integer 0 #o7777))
+  (check-type if-exists (member :error :ignore))
+  (let ((pathname (ensure-directory-pathname pathspec)))
+    (%with-host-operation
+     (:create-directory pathname)
+     (handler-case
+         (sb-posix:mkdir (namestring pathname) mode)
+       (sb-posix:syscall-error (condition)
+                               (let ((existing (directory-exists-p pathname)))
+                                 (if (and (eq if-exists :ignore)
+                                          (= (sb-posix:syscall-errno condition) sb-posix:eexist)
+                                          existing)
+                                     (return-from create-directory existing)
+                                     (error condition))))))
+    (or (directory-exists-p pathname)
+        (error "Unable to create directory ~S" pathname))))
 
 (defun %filesystem-root-p (pathname)
   "Return true when PATHNAME resolves to the filesystem root."

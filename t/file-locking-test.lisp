@@ -92,13 +92,15 @@
                     stream))
                   :to-equal '(:first :second))))))
 
-  (it "rejects invalid stream bindings during macroexpansion"
-    (signals error (macroexpand-1 '(with-advisory-file-lock (42) nil)))
-    (signals error (macroexpand-1 '(with-advisory-file-lock (nil) nil)))
-    (signals error (macroexpand-1 '(with-advisory-file-lock (t) nil)))
-    (signals error (macroexpand-1 '(with-file-lock (42 "ignored") nil)))
-    (signals error (macroexpand-1 '(with-file-lock (nil "ignored") nil)))
-    (signals error (macroexpand-1 '(with-file-lock (t "ignored") nil))))
+  (it-each ((42) (nil) (t))
+      "rejects ~S as a WITH-ADVISORY-FILE-LOCK stream binding during macroexpansion"
+      (invalid-stream)
+    (signals error (macroexpand-1 `(with-advisory-file-lock (,invalid-stream) nil))))
+
+  (it-each ((42) (nil) (t))
+      "rejects ~S as a WITH-FILE-LOCK stream binding during macroexpansion"
+      (invalid-stream)
+    (signals error (macroexpand-1 `(with-file-lock (,invalid-stream "ignored") nil))))
 
   (it "rejects a non-file-descriptor stream"
     (signals type-error

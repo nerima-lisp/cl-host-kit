@@ -119,13 +119,7 @@ restored when THUNK returns or exits non-locally. THUNK receives no arguments
 and its values are returned."
   (call-with-environment-variables thunk (list (list name value))))
 
-(defmacro with-environment-variable ((name value) &body body)
-  "Evaluate BODY with environment variable NAME temporarily set to VALUE."
-  `(call-with-environment-variable
-    (lambda ()
-      ,@body)
-    ,name
-    ,value))
+(define-with-macro with-environment-variable () call-with-environment-variable)
 
 (defmacro with-environment-variables ((&rest bindings) &body body)
   "Evaluate BODY with each (NAME VALUE) binding temporarily installed."

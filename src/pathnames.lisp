@@ -23,8 +23,7 @@
   name and type are folded into the last directory component."
   (declare (optimize (speed 3) (safety 1) (debug 0)))
   (let ((pathname (pathname pathspec)))
-    (if (not (or (pathname-name pathname) (pathname-type pathname))) pathname
-      (make-pathname
+    (if (or (pathname-name pathname) (pathname-type pathname)) (make-pathname
         :directory
         (append
           (or (pathname-directory pathname) (list :relative))
@@ -34,7 +33,7 @@
         :type
         nil
         :defaults
-        pathname))))
+        pathname) pathname)))
 
 (defun ensure-absolute-pathname (pathspec &optional (defaults *default-pathname-defaults*))
   "Return an absolute PATHNAME for PATHSPEC, merging it against DEFAULTS
@@ -55,12 +54,10 @@ The filesystem root is its own parent. Relative pathnames with one component
 return the relative default directory."
   (let* ((directory-pathname (pathname-directory-pathname pathspec))
          (directory (pathname-directory directory-pathname)))
-    (if (or (null directory) (null (rest directory)))
-        directory-pathname
-        (make-pathname :directory (butlast directory)
+    (if (and directory (rest directory)) (make-pathname :directory (butlast directory)
                        :name nil
                        :type nil
-                       :defaults directory-pathname))))
+                       :defaults directory-pathname) directory-pathname)))
 
 (defun %normalize-relative-directory-components (components)
   "Lexically cancel :UP/:CURRENT entries in COMPONENTS.

@@ -113,6 +113,18 @@
     (expect (host-kit::%file-kind sb-posix:s-ifsock) :to-equal :socket)
     (expect (host-kit::%file-kind 0) :to-equal :unknown))
 
+  (it "enforces DEVICE, INODE, HARD-LINK-COUNT, OWNER-ID, and GROUP-ID as
+non-negative at construction, the invariant a raw signed STAT-DEV read must
+be normalized to satisfy"
+    ;; A literal -1 argument lets SBCL prove the (INTEGER 0 *) violation at
+    ;; compile time and abort the file instead of signalling; derive it from
+    ;; the current time instead so the compiler cannot fold it to a constant
+    ;; and must emit (and run) the real runtime check.
+    (let ((definitely-negative (- (get-universal-time) (1+ (get-universal-time)))))
+      (dolist (initarg '(:device :inode :hard-link-count :owner-id :group-id))
+        (signals error
+          (funcall #'host-kit::%make-file-metadata initarg definitely-negative)))))
+
   (it "wraps metadata and link-read failures in host-operation-failed"
     (with-scratch-directory (scratch)
       (let ((file (merge-pathnames "regular.txt" scratch))
@@ -437,28 +449,27 @@
           (signals type-error (touch-file file :access-time -1))
           (expect (file-exists-p file) :to-be nil))))))
 
-(progn
-  (describe "path-exists-p"
-    (it "recognizes files, directories, and live symbolic links"
-      (with-scratch-directory (scratch)
-        (let ((file (merge-pathnames "entry.txt" scratch))
-              (link (merge-pathnames "entry-link" scratch))
-              (missing (merge-pathnames "missing.txt" scratch)))
-          (write-file-string "payload" file)
-          (create-symbolic-link "entry.txt" link)
-          (expect (path-exists-p file) :to-be-truthy)
-          (expect (path-exists-p scratch) :to-be-truthy)
-          (expect (path-exists-p link) :to-be-truthy)
-          (expect (path-exists-p missing) :to-be nil))))
-    (it "recognizes dangling links without resolving them"
-      (with-scratch-directory (scratch)
-        (let ((link (merge-pathnames "broken-link" scratch)))
-          (create-symbolic-link "missing.txt" link)
-          (expect (path-exists-p link) :to-be-truthy))))
-    (it "returns NIL below a regular-file component"
-      (with-scratch-directory (scratch)
-        (let ((file (merge-pathnames "not-a-directory" scratch)))
-          (write-file-string "payload" file)
-          (expect (path-exists-p
-                   (merge-pathnames "not-a-directory/child" scratch))
-                  :to-be nil))))))
+(describe "path-exists-p"
+          (it "recognizes files, directories, and live symbolic links"
+              (with-scratch-directory (scratch)
+                                      (let ((file (merge-pathnames "entry.txt" scratch))
+                                            (link (merge-pathnames "entry-link" scratch))
+                                            (missing (merge-pathnames "missing.txt" scratch)))
+                                        (write-file-string "payload" file)
+                                        (create-symbolic-link "entry.txt" link)
+                                        (expect (path-exists-p file) :to-be-truthy)
+                                        (expect (path-exists-p scratch) :to-be-truthy)
+                                        (expect (path-exists-p link) :to-be-truthy)
+                                        (expect (path-exists-p missing) :to-be nil))))
+          (it "recognizes dangling links without resolving them"
+              (with-scratch-directory (scratch)
+                                      (let ((link (merge-pathnames "broken-link" scratch)))
+                                        (create-symbolic-link "missing.txt" link)
+                                        (expect (path-exists-p link) :to-be-truthy))))
+          (it "returns NIL below a regular-file component"
+              (with-scratch-directory (scratch)
+                                      (let ((file (merge-pathnames "not-a-directory" scratch)))
+                                        (write-file-string "payload" file)
+                                        (expect (path-exists-p
+                                                 (merge-pathnames "not-a-directory/child" scratch))
+                                                :to-be nil)))))

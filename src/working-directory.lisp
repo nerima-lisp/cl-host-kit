@@ -44,6 +44,4 @@ changes are serialized with other HOST-KIT working-directory scopes."
             (funcall thunk)
          (chdir previous-directory))))))
 
-(defmacro with-working-directory ((pathspec) &body body)
-  "Evaluate BODY with PATHSPEC as the current working directory."
-  `(call-with-working-directory (lambda () ,@body) ,pathspec))
+(define-with-macro with-working-directory () call-with-working-directory)

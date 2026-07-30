@@ -53,7 +53,14 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
        :access-time (%unix-time->universal-time (sb-posix:stat-atime stat))
        :change-time (%unix-time->universal-time (sb-posix:stat-ctime stat))
        :mode (logand mode #o7777)
-       :device (sb-posix:stat-dev stat)
+       ;; SB-POSIX's STAT-DEV returns the platform C `dev_t` as SBCL's FFI
+       ;; reads it -- signed on some platforms/mounts (observed: a
+       ;; Nix-sandboxed /dev/null on aarch64-darwin). DEVICE is only ever
+       ;; compared for equality (SAME-FILE-P), never sized, so normalize to
+       ;; the same non-negative 32-bit value the OS itself represents rather
+       ;; than let a sign-extended read violate FILE-METADATA's (INTEGER 0 *)
+       ;; contract.
+       :device (logand (sb-posix:stat-dev stat) #xFFFFFFFF)
        :inode (sb-posix:stat-ino stat)
        :hard-link-count (sb-posix:stat-nlink stat)
        :owner-id (sb-posix:stat-uid stat)
@@ -170,22 +177,19 @@ time. Symbolic links are resolved, matching POSIX UTIME semantics."
           (sb-posix:utime (namestring pathname))))
     pathname))
 
-(progn
-  (defun path-exists-p (pathspec)
-    "Return true when PATHSPEC names a directory entry without resolving links.
+(defun path-exists-p (pathspec)
+  "Return true when PATHSPEC names a directory entry without resolving links.
 A missing entry or a path below a non-directory component returns NIL; a dangling
 symbolic link returns true."
-    (let ((pathname (ensure-absolute-pathname pathspec)))
-      (%with-host-operation (:path-exists-p pathname)
-        (handler-case
-            (progn
-              (sb-posix:lstat (namestring pathname))
-              t)
-          (sb-posix:syscall-error (condition)
-            (if (member (sb-posix:syscall-errno condition)
-                        (list sb-posix:enoent sb-posix:enotdir))
-                nil
-                (error condition))))))))
+  (let ((pathname (ensure-absolute-pathname pathspec)))
+    (%with-host-operation (:path-exists-p pathname)
+                          (handler-case
+                              (progn
+                                (sb-posix:lstat (namestring pathname))
+                                t)
+                            (sb-posix:syscall-error (condition)
+                                                    (unless (member (sb-posix:syscall-errno condition)
+                                                                    (list sb-posix:enoent sb-posix:enotdir)) (error condition)))))))
 
 (defun file-exists-p (pathspec)
   "Return the truename of PATHSPEC if it exists and is not a directory, else
@@ -237,38 +241,37 @@ Return NIL when PATHSPEC is missing, denotes a directory, or is not executable
 by the calling process. Symbolic links are resolved before checking access."
   (%file-accessible-p pathspec sb-posix:x-ok))
 
-(progn
-  (defun touch-file (pathspec &key (access-time nil access-time-p)
-                                  (modification-time nil modification-time-p))
-    "Create PATHSPEC when absent, update its timestamps, and return its absolute pathname.
+(defun touch-file (pathspec &key (access-time nil access-time-p)
+                            (modification-time nil modification-time-p))
+  "Create PATHSPEC when absent, update its timestamps, and return its absolute pathname.
 
 Existing file contents are preserved. Times are non-negative Common Lisp universal
 times; omitted times use the current system time. Symbolic links are resolved as
 by POSIX UTIME. An existing directory, including one reached through a symbolic
 link, signals HOST-OPERATION-FAILED."
-    (when access-time-p
-      (check-type access-time (integer 0 *)))
-    (when modification-time-p
-      (check-type modification-time (integer 0 *)))
-    (let ((pathname (ensure-absolute-pathname pathspec)))
-      (%with-host-operation (:touch-file pathname)
-        (let ((existing (probe-file pathname)))
-          (when (and existing (directory-pathname-p existing))
-            (error "~S denotes a directory, not a file" pathname))
-          (unless existing
-            (with-open-file (stream pathname
-                                    :direction :output
-                                    :if-does-not-exist :create)
-              (declare (ignore stream)))))
-        (cond
-          ((and access-time-p modification-time-p)
-           (set-file-times pathname
-                           :access-time access-time
-                           :modification-time modification-time))
-          (access-time-p
-           (set-file-times pathname :access-time access-time))
-          (modification-time-p
-           (set-file-times pathname :modification-time modification-time))
-          (t
-           (set-file-times pathname)))
-        pathname))))
+  (when access-time-p
+    (check-type access-time (integer 0 *)))
+  (when modification-time-p
+    (check-type modification-time (integer 0 *)))
+  (let ((pathname (ensure-absolute-pathname pathspec)))
+    (%with-host-operation (:touch-file pathname)
+                          (let ((existing (probe-file pathname)))
+                            (when (and existing (directory-pathname-p existing))
+                              (error "~S denotes a directory, not a file" pathname))
+                            (unless existing
+                              (with-open-file (stream pathname
+                                                      :direction :output
+                                                      :if-does-not-exist :create)
+                                (declare (ignore stream)))))
+                          (cond
+                           ((and access-time-p modification-time-p)
+                            (set-file-times pathname
+                                            :access-time access-time
+                                            :modification-time modification-time))
+                           (access-time-p
+                            (set-file-times pathname :access-time access-time))
+                           (modification-time-p
+                            (set-file-times pathname :modification-time modification-time))
+                           (t
+                            (set-file-times pathname)))
+                          pathname)))

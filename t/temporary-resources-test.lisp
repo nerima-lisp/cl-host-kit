@@ -139,11 +139,10 @@
         (setf pathname directory)
         (expect (directory-pathname-p directory) :to-be-truthy))
       (expect (directory-exists-p pathname) :to-be nil)))
-  (it
-    "rejects invalid directory bindings during macroexpansion"
-    (signals error (macroexpand-1 '(with-temporary-directory (42) nil)))
-    (signals error (macroexpand-1 '(with-temporary-directory (nil) nil)))
-    (signals error (macroexpand-1 '(with-temporary-directory (t) nil))))
+  (it-each ((42) (nil) (t))
+      "rejects ~S as a directory binding during macroexpansion"
+      (invalid-directory)
+    (signals error (macroexpand-1 `(with-temporary-directory (,invalid-directory) nil))))
   (it
     "creates the directory under an explicit parent with its requested prefix"
     (with-scratch-directory
@@ -432,12 +431,11 @@
         (setf pathname file)
         (write-string "macro" stream))
       (expect (file-exists-p pathname) :to-be nil)))
-  (it
-    "rejects invalid file bindings during macroexpansion"
-    (signals error (macroexpand-1 '(with-temporary-file (42 file) nil)))
-    (signals error (macroexpand-1 '(with-temporary-file (nil file) nil)))
-    (signals error (macroexpand-1 '(with-temporary-file (stream nil) nil)))
-    (signals error (macroexpand-1 '(with-temporary-file (stream t) nil))))
+  (it-each ((42 'file) (nil 'file) ('stream nil) ('stream t))
+      "rejects ~S ~S as a stream/pathname binding pair during macroexpansion"
+      (invalid-stream invalid-pathname)
+    (signals error
+             (macroexpand-1 `(with-temporary-file (,invalid-stream ,invalid-pathname) nil))))
   (it
     "signals after exhausting file creation attempts"
     (let ((calls 0))

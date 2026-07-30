@@ -36,9 +36,7 @@ honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
       (ensure-directory-pathname
        (sb-posix:mkdtemp (%temporary-template directory prefix)))
     (sb-posix:syscall-error (condition)
-      (if (%name-collision-p condition)
-          nil
-          (error condition)))))
+      (unless (%name-collision-p condition) (error condition)))))
 
 (defun %temporary-resource-keep-p (keep)
     (if (functionp keep)
@@ -87,22 +85,8 @@ Delete it after normal return or signalling unless KEEP is true after success."
        (%create-temporary-directory-with-retry parent prefix attempts)
        keep))))
 
-(defmacro with-temporary-directory ((pathname &key directory (prefix "tmp-") keep (attempts 128)) &body body)
-  "Evaluate BODY with PATHNAME bound to a scoped temporary directory."
-  (unless (and (symbolp pathname) (not (constantp pathname)))
-    (error "PATHNAME must be a non-constant symbol: ~S" pathname))
-  `(call-with-temporary-directory
-    (lambda (,pathname)
-      ,@body)
-    :directory
-    ,directory
-    :prefix
-    ,prefix
-    :keep
-    (lambda ()
-      ,keep)
-    :attempts
-    ,attempts))
+(define-with-macro with-temporary-directory (pathname) call-with-temporary-directory
+  :lazy-keys (:keep))
 
 (defun %temporary-file-pathname (template suffix)
   (pathname (concatenate 'string template suffix)))
@@ -142,9 +126,7 @@ Delete it after normal return or signalling unless KEEP is true after success."
               (when pathname-needs-cleanup-p
                 (ignore-errors (delete-file pathname))))))
       (sb-posix:syscall-error (condition)
-        (if (and pathname (probe-file pathname) (%name-collision-p condition))
-            nil
-            (error condition))))))
+        (unless (and pathname (probe-file pathname) (%name-collision-p condition)) (error condition))))))
 
 (defun %synchronize-output-stream (stream)
     "Flush STREAM and persist it when the host supports it."
@@ -223,44 +205,5 @@ successfully completed output stream before it closes."
            parent prefix suffix direction element-type external-format attempts)
         (%call-with-open-temporary-file thunk stream pathname keep synchronize)))))
 
-(defmacro with-temporary-file ((stream
-      pathname
-      &key
-      directory
-      (prefix "tmp-")
-      (suffix ".tmp")
-      keep
-      (direction :io)
-      (element-type ''character)
-      (external-format :utf-8)
-      (attempts 128)
-      (synchronize nil))
-    &body
-    body)
-  "Evaluate BODY with STREAM and PATHNAME bound to a scoped temporary file."
-  (unless (and (symbolp stream) (not (constantp stream)))
-    (error "STREAM must be a non-constant symbol: ~S" stream))
-  (unless (and (symbolp pathname) (not (constantp pathname)))
-    (error "PATHNAME must be a non-constant symbol: ~S" pathname))
-  `(call-with-temporary-file
-    (lambda (,stream ,pathname)
-      ,@body)
-    :directory
-    ,directory
-    :prefix
-    ,prefix
-    :suffix
-    ,suffix
-    :keep
-    (lambda ()
-      ,keep)
-    :direction
-    ,direction
-    :element-type
-    ,element-type
-    :external-format
-    ,external-format
-    :attempts
-    ,attempts
-    :synchronize
-    ,synchronize))
+(define-with-macro with-temporary-file (stream pathname) call-with-temporary-file
+  :lazy-keys (:keep))

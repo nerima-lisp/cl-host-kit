@@ -40,7 +40,7 @@
     (when synchronize
       (%synchronize-pathname directory)))
 
-  (defun call-with-atomic-output-file (target thunk &key (element-type 'character)
+  (defun call-with-atomic-output-file (thunk target &key (element-type 'character)
                                                          (external-format :utf-8)
                                                          (synchronize nil)
                                                          (if-exists :supersede))
@@ -80,21 +80,7 @@ concurrent creator."
           (when temporary-pathname
             (ignore-errors (delete-file temporary-pathname))))))))
 
-(defmacro with-atomic-output-file ((stream target &key (element-type ''character)
-                                                        (external-format :utf-8)
-                                                        (synchronize nil)
-                                                        (if-exists ':supersede))
-                                    &body body)
-  "Evaluate BODY with STREAM writing an atomic replacement for TARGET."
-  (unless (and (symbolp stream) (not (constantp stream)))
-    (error "STREAM must be a non-constant symbol: ~S" stream))
-  `(call-with-atomic-output-file
-    ,target
-      (lambda (,stream) ,@body)
-      :element-type ,element-type
-      :external-format ,external-format
-      :synchronize ,synchronize
-      :if-exists ,if-exists))
+(define-with-macro with-atomic-output-file (stream) call-with-atomic-output-file)
 
 (defun %read-character-stream (stream)
   "Return every character remaining in STREAM without relying on FILE-LENGTH."
@@ -149,15 +135,7 @@ Returning :STOP ends enumeration.  The stream closes on every exit path."
               do (return))))
   (values))
 
-(defmacro with-file-lines ((line pathspec &key (external-format :utf-8)) &body body)
-  "Lexically bind LINE while incrementally reading PATHSPEC."
-  (unless (%macro-variable-name-p line)
-    (error "LINE must be a non-constant symbol: ~S" line))
-  `(call-with-file-lines
-    (lambda (,line)
-      ,@body)
-    ,pathspec
-    :external-format ,external-format))
+(define-with-macro with-file-lines (line) call-with-file-lines)
 
 (defun %call-with-fresh-stream-chunks (stream buffer thunk)
   "Read STREAM into BUFFER and pass fresh chunks to THUNK until exhaustion or :STOP."
@@ -182,17 +160,7 @@ number of characters in each chunk.  The function returns NIL."
         (%call-with-fresh-stream-chunks stream buffer thunk))))
   (values))
 
-(defmacro with-file-string-chunks
-    ((chunk pathspec &key (external-format :utf-8) (buffer-size 65536)) &body body)
-  "Lexically bind CHUNK while incrementally reading text from PATHSPEC."
-  (unless (%macro-variable-name-p chunk)
-    (error "CHUNK must be a non-constant symbol: ~S" chunk))
-  `(call-with-file-string-chunks
-    (lambda (,chunk)
-      ,@body)
-    ,pathspec
-    :external-format ,external-format
-    :buffer-size ,buffer-size))
+(define-with-macro with-file-string-chunks (chunk) call-with-file-string-chunks)
 
 (defun read-file-lines (pathspec &key (external-format :utf-8))
   "Return the lines in PATHSPEC without their line terminators.
@@ -225,15 +193,7 @@ number of octets in each chunk.  The function returns NIL."
         (%call-with-fresh-stream-chunks stream buffer thunk))))
   (values))
 
-(defmacro with-file-octet-chunks ((chunk pathspec &key (buffer-size 65536)) &body body)
-  "Lexically bind CHUNK while incrementally reading octets from PATHSPEC."
-  (unless (%macro-variable-name-p chunk)
-    (error "CHUNK must be a non-constant symbol: ~S" chunk))
-  `(call-with-file-octet-chunks
-    (lambda (,chunk)
-      ,@body)
-    ,pathspec
-    :buffer-size ,buffer-size))
+(define-with-macro with-file-octet-chunks (chunk) call-with-file-octet-chunks)
 
 (defun write-file-string (string pathspec &key (external-format :utf-8)
                                                (synchronize nil)
@@ -243,8 +203,8 @@ number of octets in each chunk.  The function returns NIL."
 IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
   (check-type string string)
   (let ((pathname (ensure-absolute-pathname pathspec)))
-    (call-with-atomic-output-file pathname
-                                    (lambda (stream) (write-string string stream))
+    (call-with-atomic-output-file (lambda (stream) (write-string string stream))
+                                    pathname
                                     :external-format external-format
                                     :synchronize synchronize
                                     :if-exists if-exists)
@@ -266,11 +226,11 @@ passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
     (check-type line string))
   (let ((pathname (ensure-absolute-pathname pathspec))
         (terminator (string line-terminator)))
-    (call-with-atomic-output-file pathname
-                                  (lambda (stream)
+    (call-with-atomic-output-file (lambda (stream)
                                     (dolist (line lines)
                                       (write-string line stream)
                                       (write-string terminator stream)))
+                                  pathname
                                   :external-format external-format
                                   :synchronize synchronize
                                   :if-exists if-exists)
@@ -283,8 +243,8 @@ passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
 IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
   (check-type octets (array (unsigned-byte 8) (*)))
   (let ((pathname (ensure-absolute-pathname pathspec)))
-    (call-with-atomic-output-file pathname
-                                    (lambda (stream) (write-sequence octets stream))
+    (call-with-atomic-output-file (lambda (stream) (write-sequence octets stream))
+                                    pathname
                                     :element-type '(unsigned-byte 8)
                                     :synchronize synchronize
                                     :if-exists if-exists)
@@ -313,8 +273,8 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
     (with-open-file (input source :direction :input
                                  :element-type '(unsigned-byte 8))
       (call-with-atomic-output-file
-       target
        (lambda (output) (%copy-octet-stream input output))
+       target
        :element-type '(unsigned-byte 8)
        :synchronize synchronize))
     ;; Atomic output files begin with owner-only permissions.  A new copy

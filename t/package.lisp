@@ -9,6 +9,10 @@
   (:shadowing-import-from #:cl-weave #:describe)
   (:import-from #:cl-weave
    #:it
+   #:it-each
+   #:it-property
+   #:gen-character
+   #:gen-string
    #:expect
    #:signals
    #:run-all)

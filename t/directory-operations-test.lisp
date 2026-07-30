@@ -196,20 +196,12 @@
             :follow-symlinks
             :invalid))))))
 
-(it
-  "rejects invalid callback bindings during macroexpansion"
+(it-each ((42 'metadata) (nil 'metadata) ('pathname t) ('pathname nil))
+    "rejects ~S ~S as a WITH-DIRECTORY-ENTRIES callback binding pair during macroexpansion"
+    (invalid-pathname invalid-metadata)
   (signals
     error
-    (macroexpand-1 '(with-directory-entries (42 metadata "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-entries (nil metadata "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-entries (pathname t "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-entries (pathname nil "ignored") nil))))
+    (macroexpand-1 `(with-directory-entries (,invalid-pathname ,invalid-metadata "ignored") nil))))
 
 (describe
   "call-with-directory-tree / with-directory-tree"
@@ -337,20 +329,17 @@
               (declare (ignore arguments)))
             file))))))
 
-(it
-  "rejects invalid callback bindings during macroexpansion"
+(it-each
+    ((42 'metadata 'depth)
+     (nil 'metadata 'depth)
+     ('pathname t 'depth)
+     ('pathname 'metadata t))
+    "rejects ~S ~S ~S as a WITH-DIRECTORY-TREE callback binding triple during macroexpansion"
+    (invalid-pathname invalid-metadata invalid-depth)
   (signals
     error
-    (macroexpand-1 '(with-directory-tree (42 metadata depth "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-tree (nil metadata depth "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-tree (pathname t depth "ignored") nil)))
-  (signals
-    error
-    (macroexpand-1 '(with-directory-tree (pathname metadata t "ignored") nil))))
+    (macroexpand-1
+      `(with-directory-tree (,invalid-pathname ,invalid-metadata ,invalid-depth "ignored") nil))))
 
 (it
   "validates the callback and symbolic-link policy before walking"
