@@ -1,4 +1,12 @@
 ;;;; cl-host-kit.asd
+
+;;; This form comes FIRST, before any defsystem. ASDF binds *package* to
+;;; ASDF-USER only for a file it loads itself; read any other way -- a REPL
+;;; `load`, an editor evaluating the buffer, flake.nix parsing :version -- the
+;;; file is read in whatever package happens to be current. Saying it makes
+;;; the file self-contained.
+(in-package #:asdf-user)
+
 (asdf:defsystem "cl-host-kit"
   :description "SBCL-native host-environment toolkit: pathnames, filesystem, environment variables, and direct program execution"
   :long-description "A deliberately narrow, SBCL-native toolkit for pathname,
@@ -6,9 +14,9 @@ filesystem, environment-variable, direct-program-execution, and
 string-splitting operations. It exposes a documented subset of UIOP-shaped
 operations with the sb-posix contrib that SBCL provides as the only
 implementation dependency."
-  :version "0.2.1"
   :author "Nerima Lisp"
   :license "MIT"
+  :version "0.2.1"
   :homepage "https://github.com/nerima-lisp/cl-host-kit"
   :bug-tracker "https://github.com/nerima-lisp/cl-host-kit/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-host-kit.git")
@@ -34,10 +42,10 @@ implementation dependency."
 
 (asdf:defsystem "cl-host-kit/test"
   :description "Test system for cl-host-kit"
-  :version "0.2.1"
   :author "takeokunn <bararararatty@gmail.com>"
   :maintainer "takeokunn <bararararatty@gmail.com>"
   :license "MIT"
+  :version "0.2.1"
   :homepage "https://github.com/nerima-lisp/cl-host-kit"
   :bug-tracker "https://github.com/nerima-lisp/cl-host-kit/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-host-kit.git")
