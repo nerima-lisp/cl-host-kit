@@ -27,7 +27,6 @@ implementation dependency."
   :components ((:file "package")
                (:file "conditions")
                (:file "with-macros")
-               (:file "dispatch")
                (:file "strings")
                (:file "pathnames")
                (:file "environment")
@@ -56,7 +55,6 @@ implementation dependency."
   :serial t
   :components ((:file "package")
                (:file "conditions-test")
-               (:file "dispatch-test")
                (:file "strings-test")
                (:file "pathnames-test")
                (:file "environment-test")

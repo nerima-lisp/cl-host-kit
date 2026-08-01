@@ -42,7 +42,6 @@ changing a package prefix mechanically.
 | `uiop:string-prefix-p` | `string-prefix-p` | Direct predicate. |
 | `uiop:string-suffix-p` | `string-suffix-p` | Direct predicate. |
 | `uiop:strcat` | `join-strings` | Requires an explicit `:separator`; every element must already be a string. |
-| `uiop:symbol-call` | `symbol-call` | Same signature (`package name &rest arguments`). The one exception to this table being host operations only — see [Dispatch](api.md#dispatch) — kept for the org-wide `.asd` `:perform (test-op ...)` pattern. |
 
 ## Process boundary
 

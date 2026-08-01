@@ -539,17 +539,3 @@ locks.
 - **`(join-strings strings &key (separator ""))`** — Join a sequence of
   strings with `separator`. An empty sequence produces `""`; every element
   and the separator must be strings, with no implicit object conversion.
-
-## Dispatch
-
-`src/dispatch.lisp`
-
-- **`(symbol-call package name &rest arguments)`** — Call the function named
-  `name` in `package` with `arguments`. `package` and `name` are string
-  designators. Signals a `package-error` when `package` does not exist, and a
-  plain `error` when `name` does not name a function in it. Exists for one
-  recurring org pattern — a `.asd` file's `:perform (test-op ...)` clause
-  invoking its own test system's entry point — and is otherwise out of
-  scope for this library; see
-  [Migrating from uiop](compatibility.md#direct-replacements) for the
-  `uiop:symbol-call` replacement it exists to provide.
