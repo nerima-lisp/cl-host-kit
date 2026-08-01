@@ -153,4 +153,6 @@
    #:with-file-lock
    ;; Strings
    #:split-string
-   #:string-prefix-p #:string-suffix-p #:join-strings))
+   #:string-prefix-p #:string-suffix-p #:join-strings
+   ;; Dispatch
+   #:symbol-call))
