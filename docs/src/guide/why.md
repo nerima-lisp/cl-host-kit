@@ -1,11 +1,15 @@
-# FAQ
+# Why cl-host-kit
+
+A handful of scope decisions explain most of this library's shape: why it
+exists next to `uiop`, why its API is deliberately narrower than `uiop`'s, why
+it calls `sb-posix` directly, and how it relates to `cl-boundary-kit`.
 
 ## Why not just depend on uiop directly?
 
 ASDF makes UIOP readily available, but that does not make its broad API the
 right dependency for every SBCL-only application. `cl-host-kit` makes the
 SBCL-native host dependency explicit and provides a deliberately narrow
-contract (see [Compatibility](compatibility.md)). Applications that require
+contract (see [Compatibility](../reference/compatibility.md)). Applications that require
 portability or UIOP's broader API should keep using UIOP directly. Audit each
 dependent project before replacing a `uiop:` call.
 
@@ -27,7 +31,7 @@ targets SBCL, so it can call the underlying syscall directly.
 
 The API is deliberately narrow. Supporting additional keys would expand a
 surface that this library does not currently specify or test. See
-[Compatibility](compatibility.md) for the supported arguments. If a future
+[Compatibility](../reference/compatibility.md) for the supported arguments. If a future
 caller needs a dropped keyword, extend the function with a minor version bump
 and dedicated tests rather than implementing the full surface speculatively.
 

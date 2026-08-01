@@ -55,10 +55,9 @@ find it and `(asdf:load-system "cl-host-kit")`.
 
 ## Documentation
 
-- [Installation](https://nerima-lisp.github.io/cl-host-kit/installation/)
-- [Quick start](https://nerima-lisp.github.io/cl-host-kit/quick-start/)
-- [API reference](https://nerima-lisp.github.io/cl-host-kit/api-reference/)
-- [Migrating from uiop](https://nerima-lisp.github.io/cl-host-kit/compatibility/)
+- [Getting started](https://nerima-lisp.github.io/cl-host-kit/getting-started/)
+- [API reference](https://nerima-lisp.github.io/cl-host-kit/reference/api/)
+- [Migrating from uiop](https://nerima-lisp.github.io/cl-host-kit/reference/compatibility/)
   — direct replacements, and the UIOP concepts deliberately not supported.
 
 Two boundaries worth knowing before you read further. `run-program` takes a
@@ -101,7 +100,7 @@ is universally faster.
 See the org-wide [CONTRIBUTING](https://github.com/nerima-lisp/.github/blob/main/CONTRIBUTING.md)
 guide, the [package standard](https://github.com/nerima-lisp/.github/blob/main/PACKAGE_STANDARD.md),
 and this repository's own
-[contributing page](https://nerima-lisp.github.io/cl-host-kit/contributing/)
+[development page](https://nerima-lisp.github.io/cl-host-kit/project/development/)
 for the source layout and conventions.
 
 ## Support

@@ -1,7 +1,10 @@
-# Contributing
+# Development
 
-Contributions are welcome. This page covers the development workflow, how
-to run the tests, and the conventions the codebase follows.
+This page covers the development workflow, how to run the tests and
+benchmarks, and the conventions the codebase follows. The org-wide
+contribution guide, code of conduct, security policy and support channels
+live in [`nerima-lisp/.github`](https://github.com/nerima-lisp/.github); see
+the [home page](../index.md#contributing-and-support) for the links.
 
 ## Development environment
 
@@ -104,7 +107,7 @@ and lives under `t/`, one test file per `src/` file.
 - **Keep the public contract direct.** Do not copy UIOP signatures or add
   compatibility-only keyword arguments. Add a host operation only when its
   behavior, ownership, failure mode, and tests can be specified independently
-  of UIOP; update [Compatibility](compatibility.md) when it affects migration.
+  of UIOP; update [Compatibility](../reference/compatibility.md) when it affects migration.
 - **Every OS-facing function wraps failures.** Use the `%with-host-operation`
   macro from `src/conditions.lisp` so failures surface as
   `host-operation-failed` rather than a raw `sb-posix` or `file-error`
@@ -141,8 +144,3 @@ and lives under `t/`, one test file per `src/` file.
   `.github/DEPENDENCY_POLICY.md` in the
   [`nerima-lisp/.github`](https://github.com/nerima-lisp/.github) repository
   for the org-wide policy this project follows.
-
-## Reporting issues
-
-Use the [issue tracker](https://github.com/nerima-lisp/cl-host-kit/issues)
-for bugs and questions.

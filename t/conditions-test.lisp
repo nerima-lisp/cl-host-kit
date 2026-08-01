@@ -139,7 +139,7 @@
 
 (defun %api-reference-contents ()
   "Read the checked-in API reference from the ASDF system root."
-  (let ((pathname (merge-pathnames "docs/src/api-reference.md"
+  (let ((pathname (merge-pathnames "docs/src/reference/api.md"
                                    (asdf:system-source-directory "cl-host-kit"))))
     (with-open-file (stream pathname :direction :input)
       (let ((contents (make-string (file-length stream))))

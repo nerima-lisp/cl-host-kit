@@ -98,15 +98,21 @@ markdown_extensions:
       permalink: true
       title: On this page
 
+# Every page under docs/src/ must appear here: --strict fails the build on an
+# unlisted page. docs/src/ is split into guide/ reference/ project/, with only
+# index.md, getting-started.md and assets/ at the root, per the 2026-08-01
+# revision of DOCS_STANDARD.md. Home is index.md, not README.md, so
+# navigation.indexes finds it and there is only one README in the tree.
 nav:
-  - Home: README.md
-  - Getting Started:
-      - Installation: installation.md
-      - Quick Start: quick-start.md
+  - Home: index.md
+  - Getting Started: getting-started.md
   - Guide:
-      - Compatibility with uiop: compatibility.md
-      - FAQ: faq.md
+      - Why cl-host-kit: guide/why.md
   - Reference:
-      - API Reference: api-reference.md
+      - API: reference/api.md
+      - Compatibility with uiop: reference/compatibility.md
   - Project:
-      - Contributing: contributing.md
+      - Development: project/development.md
+
+not_in_nav: |
+  notes/

@@ -14,7 +14,8 @@ filesystem, environment-variable, direct-program-execution, and
 string-splitting operations. It exposes a documented subset of UIOP-shaped
 operations with the sb-posix contrib that SBCL provides as the only
 implementation dependency."
-  :author "Nerima Lisp"
+  :author "takeokunn <bararararatty@gmail.com>"
+  :maintainer "takeokunn <bararararatty@gmail.com>"
   :license "MIT"
   :version "0.2.1"
   :homepage "https://github.com/nerima-lisp/cl-host-kit"

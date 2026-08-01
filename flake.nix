@@ -177,7 +177,7 @@
       root = ./.;
 
       # `t/conditions-test.lisp`'s "API reference contract" test reads
-      # `docs/src/api-reference.md` via `asdf:system-source-directory` to
+      # `docs/src/reference/api.md` via `asdf:system-source-directory` to
       # confirm every exported HOST-KIT symbol is documented. `docs/` holds no
       # `.asd`/`.lisp` file, so the default allowlist omits it and that test
       # would error in every check/app that runs run-tests.lisp -- exactly the
