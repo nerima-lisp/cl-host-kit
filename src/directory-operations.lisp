@@ -86,9 +86,8 @@ FOLLOW-SYMLINKS is true, links to directories are included."
     (cons (file-metadata-device metadata)
           (file-metadata-inode metadata)))
 
-  (defun %directory-tree-mark-unvisited-p (directory visited)
-    (let ((identity
-            (%directory-tree-identity (file-metadata directory))))
+  (defun %directory-tree-mark-unvisited-p (metadata visited)
+    (let ((identity (%directory-tree-identity metadata)))
       (unless (gethash identity visited)
         (setf (gethash identity visited) t)
         t)))
@@ -96,7 +95,7 @@ FOLLOW-SYMLINKS is true, links to directories are included."
   (defun %directory-tree-may-yield-entries-p (depth max-depth)
     (or (null max-depth) (< depth max-depth)))
 
-  (defun %walk-directory-tree-entry
+    (defun %walk-directory-tree-entry
       (thunk directory name depth follow-symlinks max-depth visited)
     (let* ((entry (merge-pathnames name directory))
            (metadata (file-metadata entry :follow-symlinks follow-symlinks))
@@ -106,21 +105,25 @@ FOLLOW-SYMLINKS is true, links to directories are included."
         (:skip-subtree nil)
         (otherwise
          (when (eq (file-metadata-kind metadata) :directory)
-           (%walk-directory-tree
-            thunk
-            (ensure-directory-pathname entry)
-            (1+ depth)
-            follow-symlinks
-            max-depth
-            visited))))))
+           (let ((current-metadata
+                   (file-metadata entry :follow-symlinks follow-symlinks)))
+             (when (eq (file-metadata-kind current-metadata) :directory)
+               (%walk-directory-tree
+                 thunk
+                 (ensure-directory-pathname entry)
+                 current-metadata
+                 (1+ depth)
+                 follow-symlinks
+                 max-depth
+                 visited))))))))
 
   (defun %walk-directory-tree
-      (thunk directory depth follow-symlinks max-depth visited)
-    (when (and (%directory-tree-mark-unvisited-p directory visited)
+      (thunk directory metadata depth follow-symlinks max-depth visited)
+    (when (and (%directory-tree-mark-unvisited-p metadata visited)
                (%directory-tree-may-yield-entries-p depth max-depth))
       (dolist (name (%directory-entry-names directory))
         (when (eq (%walk-directory-tree-entry
-                   thunk directory name depth follow-symlinks max-depth visited)
+                    thunk directory name depth follow-symlinks max-depth visited)
                   :stop)
           (return :stop)))))
 
@@ -141,10 +144,15 @@ has depth zero."
     (check-type max-depth (or null (integer 0 *)))
     (let ((root (ensure-directory-pathname pathspec))
           (visited (make-hash-table :test (function equal))))
-      (%with-host-operation (:call-with-directory-tree root)
-        (unless (eq (file-metadata-kind (file-metadata root)) :directory)
-          (error "~S does not denote a directory" root)))
-      (%walk-directory-tree thunk root 0 follow-symlinks max-depth visited))
+      (let ((root-metadata
+              (%with-host-operation
+                (:call-with-directory-tree root)
+                (let ((metadata (file-metadata root)))
+                  (unless (eq (file-metadata-kind metadata) :directory)
+                    (error "~S does not denote a directory" root))
+                  metadata))))
+        (%walk-directory-tree
+          thunk root root-metadata 0 follow-symlinks max-depth visited)))
     (values)))
 
 (define-with-macro with-directory-tree (pathname metadata depth) call-with-directory-tree)
@@ -167,16 +175,16 @@ location signals HOST-OPERATION-FAILED rather than being silently accepted."
 (defun delete-file-if-exists (pathspec)
   "Delete a regular file or symbolic link at PATHSPEC and return true.
 
-A dangling symbolic link is removed as a link.  Return NIL when PATHSPEC is
+A dangling symbolic link is removed as a link. Return NIL when PATHSPEC is
 missing, denotes a directory, or names another special filesystem entry."
   (let ((pathname (ensure-pathname pathspec)))
-    (when (and (path-exists-p pathname)
-               (member (file-metadata-kind
-                        (file-metadata pathname :follow-symlinks nil))
-                       '(:regular-file :symbolic-link)))
-      (%with-host-operation (:delete-file-if-exists pathname)
-        (delete-file pathname))
-      t)))
+    (%with-host-operation (:delete-file-if-exists pathname)
+      (let ((metadata (%file-metadata-if-exists pathname :follow-symlinks nil)))
+        (when (and metadata
+                   (member (file-metadata-kind metadata)
+                           (quote (:regular-file :symbolic-link))))
+          (delete-file pathname)
+          t)))))
 
 (defun delete-empty-directory (pathspec)
   "Delete empty directory PATHSPEC. A missing or non-empty directory signals

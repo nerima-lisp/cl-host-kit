@@ -90,31 +90,27 @@ concurrent creator."
             while (plusp end)
             do (write-string buffer output :end end)))))
 
-(defun %ensure-octet-buffer-capacity (contents required-size)
-  "Return CONTENTS with capacity for REQUIRED-SIZE octets."
-  (if (<= required-size (array-total-size contents))
-      contents
-      (adjust-array contents
-                    (max required-size
-                         (* 2 (array-total-size contents))))))
-
-(defun %append-octet-buffer (contents size buffer end)
-  "Append BUFFER's prefix ending at END to CONTENTS after SIZE octets."
-  (let* ((required-size (+ size end))
-         (contents (%ensure-octet-buffer-capacity contents required-size)))
-    (replace contents buffer :start1 size :end1 required-size :end2 end)
-    (values contents required-size)))
-
 (defun %read-octet-stream (stream)
   "Return every octet remaining in STREAM without relying on FILE-LENGTH."
-  (let ((buffer (make-array 65536 :element-type '(unsigned-byte 8)))
-        (contents (make-array 65536 :element-type '(unsigned-byte 8) :adjustable t))
+  (let ((contents (make-array 65536
+                              :element-type (quote (unsigned-byte 8))
+                              :adjustable t))
         (size 0))
-    (loop for end = (read-sequence buffer stream)
-          while (plusp end)
-          do (multiple-value-setq (contents size)
-               (%append-octet-buffer contents size buffer end)))
-    (adjust-array contents size)))
+    (loop
+      (when (= size (array-total-size contents))
+        (let ((octet (read-byte stream nil nil)))
+          (when (null octet)
+            (return (adjust-array contents size)))
+          (setf contents
+                (adjust-array contents (* 2 (array-total-size contents))))
+          (setf (aref contents size) octet)
+          (incf size)))
+      (let ((end (read-sequence contents stream
+                                :start size
+                                :end (array-total-size contents))))
+        (when (= end size)
+          (return (adjust-array contents size)))
+        (setf size end)))))
 
 (defun read-file-string (pathspec &key (external-format :utf-8))
   "Return the entire contents of the file PATHSPEC as a string."
@@ -139,10 +135,16 @@ Returning :STOP ends enumeration.  The stream closes on every exit path."
 
 (defun %call-with-fresh-stream-chunks (stream buffer thunk)
   "Read STREAM into BUFFER and pass fresh chunks to THUNK until exhaustion or :STOP."
-  (loop for end = (read-sequence buffer stream)
+  (loop for
+        end = (read-sequence buffer stream)
         while (plusp end)
-        when (eq (funcall thunk (subseq buffer 0 end)) :stop)
-          do (return)))
+        for full-buffer-p = (= end (length buffer))
+        for chunk = (if full-buffer-p buffer
+      (subseq buffer 0 end))
+        when (eq (funcall thunk chunk) :stop)
+          do (return)
+        when full-buffer-p
+          do (setf buffer (make-array (length buffer) :element-type (array-element-type buffer)))))
 
 (defun call-with-file-string-chunks (thunk pathname &key (buffer-size 65536) (external-format :default))
   "Call THUNK with each fresh string chunk read from PATHNAME.
@@ -268,20 +270,27 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
    :directory (pathname-directory-pathname target)
    :prefix ".host-kit-copy-"))
 
-(defun %copy-regular-file-atomically (source target target-existed-p synchronize)
-  (let ((source-metadata (file-metadata source)))
-    (with-open-file (input source :direction :input
-                                 :element-type '(unsigned-byte 8))
+(defun %copy-regular-file-atomically
+    (source target source-metadata target-existed-p synchronize)
+  (with-open-file (input source :direction :input
+                               :element-type '(unsigned-byte 8))
+    (let ((opened-metadata
+            (%metadata-from-stat
+             (sb-posix:fstat (sb-sys:fd-stream-fd input)))))
+      (unless (and (eq (file-metadata-kind opened-metadata) :regular-file)
+                   (= (file-metadata-device opened-metadata)
+                      (file-metadata-device source-metadata))
+                   (= (file-metadata-inode opened-metadata)
+                      (file-metadata-inode source-metadata)))
+        (error "SOURCE changed while preparing to copy it: ~S" source))
       (call-with-atomic-output-file
-       (lambda (output) (%copy-octet-stream input output))
+       (lambda (output)
+         (%copy-octet-stream input output)
+         (unless target-existed-p
+           (%apply-copied-metadata-to-stream opened-metadata output)))
        target
        :element-type '(unsigned-byte 8)
-       :synchronize synchronize))
-    ;; Atomic output files begin with owner-only permissions.  A new copy
-    ;; should instead retain the portable metadata of its source; an
-    ;; explicitly superseded target keeps its own access mode.
-    (unless target-existed-p
-      (%apply-copied-metadata source-metadata target))))
+       :synchronize synchronize))))
 
 (progn
   (defun %validate-copy-file-source (source metadata follow-symlinks)
@@ -294,10 +303,25 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
   (defun %validate-copy-file-target (source target target-existed-p follow-symlinks)
     (when (and follow-symlinks target-existed-p (same-file-p source target))
       (error "SOURCE and TARGET denote the same file: ~S and ~S" source target)))
-  (defun %copy-file-entry (source target metadata target-existed-p synchronize follow-symlinks)
-    (if (and (not follow-symlinks) (eq (file-metadata-kind metadata) :symbolic-link))
-        (%copy-symbolic-link-atomically source target synchronize)
-        (%copy-regular-file-atomically source target target-existed-p synchronize)))
+  (defun %copy-file-entry
+    (source target metadata target-existed-p synchronize follow-symlinks)
+  (if (and (not follow-symlinks)
+           (eq (file-metadata-kind metadata) :symbolic-link))
+      (%copy-symbolic-link-atomically source target synchronize)
+      (%copy-regular-file-atomically
+       source target metadata target-existed-p synchronize)))
+  (defun %copy-file-with-metadata
+      (source target metadata if-exists synchronize follow-symlinks)
+    (let ((target-existed-p (path-exists-p target)))
+      (when (and (eq if-exists :error) target-existed-p)
+        (error "Target directory entry already exists: ~S" target))
+      (%validate-copy-file-source source metadata follow-symlinks)
+      (%validate-copy-file-target
+       source target target-existed-p follow-symlinks)
+      (%copy-file-entry
+       source target metadata target-existed-p synchronize follow-symlinks)
+      target))
+
   (defun copy-file (source target &key (if-exists :error) (synchronize nil)
                                         (follow-symlinks t))
     "Copy SOURCE to TARGET atomically and return TARGET.
@@ -314,26 +338,47 @@ same file when FOLLOW-SYMLINKS is true."
     (let ((source (ensure-absolute-pathname source))
           (target (ensure-absolute-pathname target)))
       (%with-host-operation (:copy-file (list source target))
-        (let ((target-existed-p (path-exists-p target)))
-          (when (and (eq if-exists :error) target-existed-p)
-            (error "Target directory entry already exists: ~S" target))
-          (let ((metadata (file-metadata source :follow-symlinks follow-symlinks)))
-            (%validate-copy-file-source source metadata follow-symlinks)
-            (%validate-copy-file-target source target target-existed-p follow-symlinks)
-            (%copy-file-entry source target metadata target-existed-p synchronize follow-symlinks))))
-      target)))
-
-(defun %apply-copied-metadata (metadata target)
-  "Apply the portable metadata preserved by COPY-DIRECTORY-TREE."
-  (set-file-mode target (logand #o7777 (file-metadata-mode metadata)))
-  (set-file-times target
-                  :access-time (file-metadata-access-time metadata)
-                  :modification-time (file-metadata-modification-time metadata)))
+        (%copy-file-with-metadata
+         source target
+         (file-metadata source :follow-symlinks follow-symlinks)
+         if-exists synchronize follow-symlinks)))))
 
 (progn
-  (defun %copy-directory-tree-regular-file (source target metadata synchronize)
-    (copy-file source target :synchronize synchronize)
-    (%apply-copied-metadata metadata target))
+  (defun %descriptor-pathname (descriptor)
+    "Return the stable descriptor pathname used for fd-relative metadata calls."
+    (pathname (format nil "/dev/fd/~D" descriptor)))
+
+  (defun %apply-copied-metadata-to-descriptor (metadata descriptor)
+    "Apply portable copied metadata to the inode held open by DESCRIPTOR."
+    (sb-posix:fchmod descriptor
+                     (logand #o7777 (file-metadata-mode metadata)))
+    (set-file-times (%descriptor-pathname descriptor)
+                    :access-time (file-metadata-access-time metadata)
+                    :modification-time
+                    (file-metadata-modification-time metadata)))
+
+  (defun %apply-copied-metadata-to-stream (metadata stream)
+    "Apply copied metadata to the open STREAM inode before publication."
+    (finish-output stream)
+    (%apply-copied-metadata-to-descriptor
+     metadata (sb-sys:fd-stream-fd stream)))
+
+  (defun %apply-copied-metadata (metadata target)
+    "Apply copied metadata to TARGET through a held descriptor."
+    (let ((descriptor nil))
+      (unwind-protect
+           (progn
+             (setf descriptor
+                   (sb-posix:open (namestring target) sb-posix:o-rdonly))
+             (%apply-copied-metadata-to-descriptor metadata descriptor))
+        (when descriptor
+          (sb-posix:close descriptor))))))
+
+(progn
+  (defun %copy-directory-tree-regular-file
+    (source target metadata synchronize)
+  (%validate-copy-file-source source metadata nil)
+  (%copy-file-entry source target metadata nil synchronize nil))
 
   (defun %copy-directory-tree-symbolic-link (source target)
     ;; Preserve the link text so relative and dangling links retain their meaning.
@@ -410,20 +455,15 @@ a descendant of SOURCE, or resolve through a symbolic-link parent into SOURCE.
 When SYNCHRONIZE is true, completed staged directories
 and the target's parent are fsynced before and after publication respectively."
     (check-type synchronize boolean)
-    (let* ((source (ensure-directory-pathname (ensure-absolute-pathname source)))
-           (target (ensure-directory-pathname (ensure-absolute-pathname target)))
-           (target-parent (parent-directory-pathname target))
-           (source-metadata (file-metadata source :follow-symlinks nil)))
+    (let* ((source
+             (ensure-directory-pathname (ensure-absolute-pathname source)))
+           (target
+             (ensure-directory-pathname (ensure-absolute-pathname target)))
+           (source-metadata
+             (file-metadata source :follow-symlinks nil)))
       (%with-host-operation (:copy-directory-tree (list source target))
-        (%validate-directory-tree-copy source target source-metadata)
-        (call-with-temporary-directory
-         (lambda (staging)
-           (%stage-and-publish-directory-tree
-            source source-metadata target target-parent staging synchronize))
-         :directory target-parent
-         :prefix ".host-kit-copy-"
-         :keep t)
-        target))))
+        (%copy-directory-tree-with-metadata
+         source target source-metadata synchronize)))))
 
 (defun copy-path (source target &key (synchronize nil))
   "Copy SOURCE's filesystem entry to an absent TARGET and return TARGET.
@@ -438,12 +478,13 @@ SYNCHRONIZE is passed to the selected copy operation."
     (%with-host-operation (:copy-path (list source target))
       (case (file-metadata-kind metadata)
         ((:regular-file :symbolic-link)
-         (copy-file source target
-                    :if-exists :error
-                    :synchronize synchronize
-                    :follow-symlinks nil))
+         (%copy-file-with-metadata
+          source target metadata :error synchronize nil))
         (:directory
-         (copy-directory-tree source target :synchronize synchronize))
+         (%copy-directory-tree-with-metadata
+          (ensure-directory-pathname source)
+          (ensure-directory-pathname target)
+          metadata synchronize))
         (otherwise
          (error "COPY-PATH does not support ~S at ~S"
                 (file-metadata-kind metadata) source))))))

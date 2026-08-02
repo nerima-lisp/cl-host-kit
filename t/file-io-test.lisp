@@ -70,67 +70,102 @@
     (with-scratch-directory
       (scratch)
       (let ((file (merge-pathnames "chunks.txt" scratch))
-            (contents (format nil "ab~C~C~Ccd"
-                              (code-char #x65E5)
-                              (code-char #x672C)
-                              (code-char #x8A9E)))
-            (chunks '()))
+            (contents
+            (format
+              nil
+              "ab~C~C~Ccd"
+              (code-char #x65E5)
+              (code-char #x672C)
+              (code-char #x8A9E)))
+            (chunks (quote ())))
         (write-file-string contents file)
         (call-with-file-string-chunks
-         (lambda (chunk) (push chunk chunks))
-         file
-         :buffer-size 3)
+          (lambda (chunk)
+            (push chunk chunks))
+          file
+          :buffer-size
+          3)
         (setf chunks (nreverse chunks))
-        (expect chunks
-                :to-equal
-                (list (format nil "ab~C" (code-char #x65E5))
-                      (format nil "~C~Cc" (code-char #x672C) (code-char #x8A9E))
-                      "d"))
+        (expect
+          chunks
+          :to-equal
+          (list
+            (format nil "ab~C" (code-char #x65E5))
+            (format nil "~C~Cc" (code-char #x672C) (code-char #x8A9E))
+            "d"))
+        (expect (eq (first chunks) (second chunks)) :to-be nil))))
+  (it
+    "does not emit an empty final chunk at an exact buffer boundary"
+    (with-scratch-directory
+      (scratch)
+      (let ((file (merge-pathnames "exact-chunks.txt" scratch))
+            (chunks (quote ())))
+        (write-file-string "abcdef" file)
+        (call-with-file-string-chunks
+          (lambda (chunk)
+            (push chunk chunks))
+          file
+          :buffer-size
+          3)
+        (setf chunks (nreverse chunks))
+        (expect chunks :to-equal (quote ("abc" "def")))
         (expect (eq (first chunks) (second chunks)) :to-be nil))))
   (it
     "stops when the callback returns :STOP"
     (with-scratch-directory
       (scratch)
       (let ((file (merge-pathnames "stop.txt" scratch))
-            (chunks '()))
+            (chunks (quote ())))
         (write-file-string "abcdef" file)
         (call-with-file-string-chunks
-         (lambda (chunk)
-           (push chunk chunks)
-           :stop)
-         file
-         :buffer-size 2)
-        (expect (nreverse chunks) :to-equal '("ab")))))
+          (lambda (chunk)
+            (push chunk chunks)
+            :stop)
+          file
+          :buffer-size
+          2)
+        (expect (nreverse chunks) :to-equal (quote ("ab"))))))
   (it
     "supports the lexical macro form and requested external format"
     (with-scratch-directory
       (scratch)
       (let ((file (merge-pathnames "latin-1.txt" scratch))
-            (chunks '())
+            (chunks (quote ()))
             (contents (format nil "caf~C" (code-char #xE9))))
         (write-file-string contents file :external-format :latin-1)
-        (with-file-string-chunks (chunk file :external-format :latin-1 :buffer-size 2)
+        (with-file-string-chunks
+          (chunk file :external-format :latin-1 :buffer-size 2)
           (push chunk chunks))
-        (expect (nreverse chunks)
-                :to-equal
-                (list "ca" (format nil "f~C" (code-char #xE9)))))))
+        (expect
+          (nreverse chunks)
+          :to-equal
+          (list "ca" (format nil "f~C" (code-char #xE9)))))))
   (it
     "validates arguments, bindings, and missing file failures"
     (with-scratch-directory
       (scratch)
       (let ((missing (merge-pathnames "missing.txt" scratch)))
         (signals type-error (call-with-file-string-chunks nil missing))
-        (signals type-error
-                 (call-with-file-string-chunks (lambda (chunk) (declare (ignore chunk)))
-                                               missing
-                                               :buffer-size 0))
-        (signals error
-                 (macroexpand-1 '(with-file-string-chunks (42 "ignored") nil)))
-        (signals error
-                 (macroexpand-1 '(with-file-string-chunks (nil "ignored") nil)))
-        (signals host-operation-failed
-                 (call-with-file-string-chunks (lambda (chunk) (declare (ignore chunk)))
-                                               missing))))))
+        (signals
+          type-error
+          (call-with-file-string-chunks
+            (lambda (chunk)
+              (declare (ignore chunk)))
+            missing
+            :buffer-size
+            0))
+        (signals
+          error
+          (macroexpand-1 (quote (with-file-string-chunks (42 "ignored") nil))))
+        (signals
+          error
+          (macroexpand-1 (quote (with-file-string-chunks (nil "ignored") nil))))
+        (signals
+          host-operation-failed
+          (call-with-file-string-chunks
+            (lambda (chunk)
+              (declare (ignore chunk)))
+            missing))))))
 
 (describe
   "call-with-file-lines / with-file-lines"
@@ -437,18 +472,20 @@
         (write-file-octets octets target)
         (expect (coerce (read-file-octets target) 'list) :to-equal '(0 1 127 255)))))
   (it
-    "reads octets across its internal chunk boundary"
+    "reads empty and boundary-sized octet files"
     (with-scratch-directory
       (scratch)
-      (let ((target (merge-pathnames "large-data.bin" scratch))
-            (octets (make-array 65537 :element-type '(unsigned-byte 8) :initial-element 42)))
-        (setf (aref octets 65536) 255)
-        (write-file-octets octets target)
-        (let ((read-octets (read-file-octets target)))
-          (expect (length read-octets) :to-equal 65537)
-          (expect (aref read-octets 0) :to-equal 42)
-          (expect (aref read-octets 65535) :to-equal 42)
-          (expect (aref read-octets 65536) :to-equal 255)))))
+      (dolist (size (quote (0 65536 65537 1048576 1048577)))
+        (let* ((target (merge-pathnames (format nil "data-~D.bin" size) scratch))
+               (octets (make-array size
+                                   :element-type (quote (unsigned-byte 8))
+                                   :initial-element 42)))
+          (when (plusp size)
+            (setf (aref octets (1- size)) 255))
+          (write-file-octets octets target)
+          (let ((read-octets (read-file-octets target)))
+            (expect (length read-octets) :to-equal size)
+            (expect (mismatch read-octets octets) :to-be nil))))))
   (it
     "copies large binary data to an absent target"
     (with-scratch-directory
@@ -467,6 +504,42 @@
           (expect (aref copied 0) :to-equal 42)
           (expect (aref copied 65535) :to-equal 42)
           (expect (aref copied 65536) :to-equal 255)))))
+  (it
+  "rejects a source replaced after metadata validation"
+  (with-scratch-directory
+    (scratch)
+    (let ((source (merge-pathnames "source.bin" scratch))
+          (replacement (merge-pathnames "replacement.bin" scratch))
+          (target (merge-pathnames "target.bin" scratch)))
+      (write-file-string "original" source)
+      (write-file-string "replacement" replacement)
+      (let ((metadata (file-metadata source)))
+        (delete-file source)
+        (rename-file replacement source)
+        (signals error
+          (%copy-regular-file-atomically
+           source target metadata nil nil))
+        (expect (path-exists-p target) :to-be nil)))))
+  (it
+  "copies metadata from the opened source inode"
+  (with-scratch-directory
+    (scratch)
+    (let ((source (merge-pathnames "source.bin" scratch))
+          (target (merge-pathnames "target.bin" scratch))
+          (modification-time (- (get-universal-time) 3600)))
+      (write-file-string "payload" source)
+      (let ((stale-metadata (file-metadata source)))
+        (set-file-mode source #o741)
+        (set-file-times source :modification-time modification-time)
+        (%copy-regular-file-atomically
+         source target stale-metadata nil nil)
+        (let ((copied-metadata (file-metadata target)))
+          (expect (file-metadata-mode copied-metadata)
+                  :to-equal
+                  #o741)
+          (expect (file-metadata-modification-time copied-metadata)
+                  :to-equal
+                  modification-time))))))
   (it
     "copies symbolic links exactly only when requested"
     (with-scratch-directory

@@ -288,6 +288,44 @@
           root)
         (expect calls :to-equal 1))))
   (it
+  "does not descend when a callback replaces a directory with a symbolic link"
+  (with-scratch-directory
+    (scratch)
+    (let ((root (merge-pathnames "tree/" scratch))
+          (outside (merge-pathnames "outside/" scratch))
+          (seen (quote ())))
+      (ensure-directory-tree (merge-pathnames "child/" root))
+      (ensure-directory-tree outside)
+      (write-file-string "outside" (merge-pathnames "outside.txt" outside))
+      (call-with-directory-tree
+        (lambda (pathname metadata depth)
+          (declare (ignore depth))
+          (push (file-namestring pathname) seen)
+          (when (string= (file-namestring pathname) "child")
+            (expect (file-metadata-kind metadata) :to-equal :directory)
+            (delete-empty-directory pathname)
+            (create-symbolic-link outside pathname)))
+        root)
+      (expect (nreverse seen) :to-equal (quote ("child"))))))
+    (it
+    "continues after a callback deletes a regular file"
+    (with-scratch-directory
+      (scratch)
+      (let ((root (merge-pathnames "tree/" scratch))
+            (seen (quote ())))
+        (ensure-directory-tree root)
+        (write-file-string "a" (merge-pathnames "a.txt" root))
+        (write-file-string "b" (merge-pathnames "b.txt" root))
+        (call-with-directory-tree
+          (lambda (pathname metadata depth)
+            (declare (ignore depth))
+            (push (file-namestring pathname) seen)
+            (when (string= (file-namestring pathname) "a.txt")
+              (expect (file-metadata-kind metadata) :to-equal :regular-file)
+              (delete-file pathname)))
+          root)
+        (expect (nreverse seen) :to-equal (quote ("a.txt" "b.txt"))))))
+  (it
     "limits entries to the requested depth"
     (with-scratch-directory
       (scratch)
@@ -388,14 +426,21 @@
   (describe
     "delete-file-if-exists / delete-empty-directory"
     (it
-      "deletes an existing regular file and reports whether it was present"
-      (with-scratch-directory
-        (scratch)
-        (let ((file (merge-pathnames "remove.txt" scratch)))
-          (write-file-string "data" file)
-          (expect (delete-file-if-exists file) :to-be-truthy)
-          (expect (file-exists-p file) :to-be nil)
-          (expect (delete-file-if-exists file) :to-be nil))))
+  "deletes an existing regular file and reports whether it was present"
+  (with-scratch-directory
+    (scratch)
+    (let ((file (merge-pathnames "remove.txt" scratch)))
+      (write-file-string "data" file)
+      (expect (delete-file-if-exists file) :to-be-truthy)
+      (expect (file-exists-p file) :to-be nil)
+      (expect (delete-file-if-exists file) :to-be nil)))
+  (with-scratch-directory
+    (scratch)
+    (let ((file (merge-pathnames "not-a-directory" scratch)))
+      (write-file-string "data" file)
+      (expect (delete-file-if-exists
+               (merge-pathnames "child" (ensure-directory-pathname file)))
+              :to-be nil))))
     (it
       "does not remove a directory through delete-file-if-exists"
       (with-scratch-directory
