@@ -442,6 +442,17 @@
                (merge-pathnames "child" (ensure-directory-pathname file)))
               :to-be nil))))
     (it
+      "propagates a syscall error that is neither ENOENT nor ENOTDIR"
+      (with-scratch-directory
+        (scratch)
+        (let ((loop-a (merge-pathnames "loop-a" scratch))
+              (loop-b (merge-pathnames "loop-b" scratch)))
+          (create-symbolic-link "loop-b" loop-a)
+          (create-symbolic-link "loop-a" loop-b)
+          (signals host-operation-failed
+            (delete-file-if-exists
+             (merge-pathnames "child" (ensure-directory-pathname loop-a)))))))
+    (it
       "does not remove a directory through delete-file-if-exists"
       (with-scratch-directory
         (scratch)

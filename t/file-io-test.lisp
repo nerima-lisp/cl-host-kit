@@ -521,6 +521,23 @@
            source target metadata nil nil))
         (expect (path-exists-p target) :to-be nil)))))
   (it
+  "rejects a source whose recorded device no longer matches the opened file"
+  (with-scratch-directory
+    (scratch)
+    (let* ((source (merge-pathnames "source.bin" scratch))
+           (target (merge-pathnames "target.bin" scratch)))
+      (write-file-string "payload" source)
+      (let* ((real-metadata (file-metadata source))
+             (mismatched-metadata
+               (host-kit::%make-file-metadata
+                :kind (file-metadata-kind real-metadata)
+                :device (1+ (file-metadata-device real-metadata))
+                :inode (file-metadata-inode real-metadata))))
+        (signals error
+          (host-kit::%copy-regular-file-atomically
+           source target mismatched-metadata nil nil))
+        (expect (path-exists-p target) :to-be nil)))))
+  (it
   "copies metadata from the opened source inode"
   (with-scratch-directory
     (scratch)
