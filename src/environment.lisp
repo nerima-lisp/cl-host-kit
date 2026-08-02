@@ -33,22 +33,47 @@
       (list
         (%check-environment-variable-name name)
         (%check-environment-variable-value value))))
+
   (defun %validate-environment-bindings (bindings)
     (check-type bindings list)
-    (unless (list-length bindings)
-      (error 'type-error :datum bindings :expected-type 'list))
-    (loop with names = '()
-          for binding in bindings
-          for normalized = (%validate-environment-binding binding)
-          for name = (first normalized)
-          do (when (find name names :test #'string=)
-        (error 'type-error :datum bindings :expected-type 'list)) (push name names)
-          collect normalized))
+    (let ((binding-count (list-length bindings)))
+      (unless binding-count
+        (error 'type-error :datum bindings :expected-type 'list))
+      (if (<= binding-count 16)
+          (let ((names '()))
+            (mapcar
+             (lambda (binding)
+               (let* ((normalized (%validate-environment-binding binding))
+                      (name (first normalized)))
+                 (when (find name names :test #'string=)
+                   (error 'type-error
+                          :datum bindings
+                          :expected-type 'list))
+                 (push name names)
+                 normalized))
+             bindings))
+          (let ((names (make-hash-table
+                        :test #'equal
+                        :size binding-count)))
+            (mapcar
+             (lambda (binding)
+               (let* ((normalized (%validate-environment-binding binding))
+                      (name (first normalized)))
+                 (multiple-value-bind (value present-p)
+                     (gethash name names)
+                   (declare (ignore value))
+                   (when present-p
+                     (error 'type-error
+                            :datum bindings
+                            :expected-type 'list)))
+                 (setf (gethash name names) t)
+                 normalized))
+             bindings)))))
   (defun %save-environment-bindings (bindings)
     (mapcar
-      (lambda (binding)
-        (list (first binding) (getenv (first binding))))
-      bindings))
+     (lambda (binding)
+       (list (first binding) (getenv (first binding))))
+     bindings))
   (defun %install-environment-bindings (bindings)
     (dolist (binding bindings)
       (setf (getenv (first binding)) (second binding))))

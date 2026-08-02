@@ -119,13 +119,11 @@ components in that suffix."
   (let ((pathname (ensure-absolute-pathname pathspec)))
     (or (probe-file pathname) (%truenamize-missing-pathname pathname))))
 
-(defun %normalized-absolute-directory-components (pathspec)
-  "Return PATHSPEC's absolute directory components without dot navigation."
+(defun %normalized-directory-components (pathname)
+  "Return PATHNAME directory components without dot navigation.
+PATHNAME must already be absolute; callers retain its host and device."
   (loop with normalized = nil
-        for component in
-          (rest (pathname-directory
-                 (ensure-directory-pathname
-                  (ensure-absolute-pathname pathspec))))
+        for component in (rest (pathname-directory pathname))
         do (cond
              ((eq component :up)
               (when normalized
@@ -135,12 +133,21 @@ components in that suffix."
               (push component normalized)))
         finally (return (nreverse normalized))))
 
+(defun %component-prefix-p (prefix components)
+  "Return true when PREFIX is an element-wise prefix of COMPONENTS."
+  (do ((remaining-prefix prefix (cdr remaining-prefix))
+       (remaining-components components (cdr remaining-components)))
+    ((endp remaining-prefix) t)
+    (when (or
+        (endp remaining-components)
+        (not (equal (car remaining-prefix) (car remaining-components))))
+      (return nil))))
 (defun pathname-within-p (pathspec directory &key (resolve-symlinks nil))
   "True when PATHSPEC is DIRECTORY itself or a descendant of DIRECTORY.
 
 The comparison is lexical after absolute pathnames and dot navigation are
-normalized. When RESOLVE-SYMLINKS is true, TRUENAMIZE resolves each path's
-existing ancestors first, so links cannot escape DIRECTORY. This function
+normalized. When RESOLVE-SYMLINKS is true, TRUENAMIZE resolves existing
+ancestors of each path first, so links cannot escape DIRECTORY. This function
 does not require PATHSPEC itself to exist."
   (check-type resolve-symlinks boolean)
   (let* ((pathname (ensure-absolute-pathname pathspec))
@@ -151,16 +158,11 @@ does not require PATHSPEC itself to exist."
            (if resolve-symlinks
                (ensure-directory-pathname (truenamize directory))
                directory))
-         (pathname-directory (pathname-directory-pathname pathname))
-         (pathname-components
-           (%normalized-absolute-directory-components pathname-directory))
-         (directory-components
-           (%normalized-absolute-directory-components directory)))
-    (and (equal (pathname-host pathname-directory) (pathname-host directory))
-         (equal (pathname-device pathname-directory) (pathname-device directory))
-         (<= (length directory-components) (length pathname-components))
-         (equal directory-components
-                (subseq pathname-components 0 (length directory-components))))))
+         (pathname-components (%normalized-directory-components pathname))
+         (directory-components (%normalized-directory-components directory)))
+    (and (equal (pathname-host pathname) (pathname-host directory))
+         (equal (pathname-device pathname) (pathname-device directory))
+         (%component-prefix-p directory-components pathname-components))))
 
 (defun relative-pathname (pathspec base)
   "Return PATHSPEC as a lexical pathname relative to directory BASE.

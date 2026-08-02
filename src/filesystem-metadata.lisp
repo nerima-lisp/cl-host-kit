@@ -66,18 +66,33 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
        :owner-id (sb-posix:stat-uid stat)
        :group-id (sb-posix:stat-gid stat))))
 
-(defun file-metadata (pathspec &key (follow-symlinks t))
-  "Return immutable FILE-METADATA for PATHSPEC.
+(progn
+  (defun %file-metadata-if-exists (pathspec &key (follow-symlinks t))
+    "Return FILE-METADATA for PATHSPEC, or NIL when its entry is absent."
+    (check-type follow-symlinks boolean)
+    (let ((pathname (ensure-pathname pathspec)))
+      (handler-case
+          (%metadata-from-stat
+           (if follow-symlinks
+               (sb-posix:stat (namestring pathname))
+               (sb-posix:lstat (namestring pathname))))
+        (sb-posix:syscall-error (condition)
+          (unless (member (sb-posix:syscall-errno condition)
+                          (list sb-posix:enoent sb-posix:enotdir))
+            (error condition))))))
+
+  (defun file-metadata (pathspec &key (follow-symlinks t))
+    "Return immutable FILE-METADATA for PATHSPEC.
 When FOLLOW-SYMLINKS is true (the default), inspect the link target. When it
 is NIL, inspect the directory entry itself, allowing a broken symbolic link to
 be observed. Missing paths and invalid links signal HOST-OPERATION-FAILED."
-  (check-type follow-symlinks boolean)
-  (let ((pathname (ensure-pathname pathspec)))
-    (%with-host-operation (:file-metadata pathname)
-      (%metadata-from-stat
-       (if follow-symlinks
-           (sb-posix:stat (namestring pathname))
-           (sb-posix:lstat (namestring pathname)))))))
+    (check-type follow-symlinks boolean)
+    (let ((pathname (ensure-pathname pathspec)))
+      (%with-host-operation (:file-metadata pathname)
+        (%metadata-from-stat
+         (if follow-symlinks
+             (sb-posix:stat (namestring pathname))
+             (sb-posix:lstat (namestring pathname))))))))
 
 (defun symbolic-link-p (pathspec)
   "Return true when PATHSPEC is a symbolic link, including a broken link.

@@ -43,9 +43,10 @@ diagnosing a failure.
 
 ### Microbenchmarks
 
-The repeatable microbenchmark runner targets 20 ms per case, then reports
-medians after three warmups and seven measured samples. A 250-operation cap
-bounds calibration, while full garbage collections bracket the warmup and
+The repeatable microbenchmark runner targets 100 ms per case, then reports
+medians after three warmups and 16 measured samples (the sample count must
+stay even, for balanced ABBA ordering). A 1,000,000-operation cap bounds
+calibration, while full garbage collections bracket the warmup and
 measurement phases so their cost stays out of individual samples. It is a
 diagnostic tool, not a CI performance gate:
 
@@ -53,18 +54,20 @@ diagnostic tool, not a CI performance gate:
 nix run .#bench
 ```
 
-Set `CL_HOST_KIT_BENCHMARK` to `splits`, `pathnames`, or `filesystem` to
-investigate one hot-path group:
+Set `CL_HOST_KIT_BENCHMARK` to `splits`, `joins`, `pathnames`, `environment`,
+`process`, or `filesystem` to investigate one hot-path group:
 
 ```sh
 CL_HOST_KIT_BENCHMARK=pathnames nix run .#bench
 ```
 
-Selected cases also compare against ASDF's bundled `uiop` implementation. The
-benchmark verifies equal results before measuring and excludes APIs whose
-calling conventions cannot be aligned. `uiop` is a benchmark-only baseline,
-not a dependency of `cl-host-kit`; a relative value below `1.00x` reports a
-lower local measurement, not a universal performance claim.
+Selected cases also compare against ASDF's bundled `uiop` implementation and,
+where relevant, an embedded copy of the previous `cl-host-kit`
+implementation. The benchmark verifies equal results before measuring and
+excludes APIs whose calling conventions cannot be aligned. `uiop` is a
+benchmark-only baseline, not a dependency of `cl-host-kit`; a relative value
+below `1.00x` reports a lower local measurement, not a universal performance
+claim.
 
 ### Coverage
 

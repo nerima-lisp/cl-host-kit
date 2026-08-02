@@ -107,6 +107,68 @@
 
 (describe
   "call-with-environment-variables"
+   (it
+   "uses case-sensitive hash duplicate detection for large binding sets"
+   (let* ((prefix
+           (loop for index below 20
+                 collect (list
+                          (format nil "CL_HOST_KIT_SCOPED_ENV_LARGE_~D" index)
+                          "value")))
+          (case-distinct
+           (append prefix
+                   (list
+                    (list "CL_HOST_KIT_SCOPED_ENV_CASE" "upper")
+                    (list "cl_host_kit_scoped_env_case" "lower"))))
+          (duplicate-name (first (first prefix)))
+          (duplicate-bindings
+           (append prefix (list (list duplicate-name "duplicate"))))
+          (invalid-value-bindings
+           (append prefix (list (list duplicate-name 42)))))
+     (call-with-environment-variables
+      (lambda ()
+        (expect (getenv "CL_HOST_KIT_SCOPED_ENV_CASE") :to-equal "upper")
+        (expect (getenv "cl_host_kit_scoped_env_case") :to-equal "lower"))
+      case-distinct)
+     (let ((condition
+            (handler-case
+                (progn
+                  (call-with-environment-variables
+                   (lambda () nil)
+                   duplicate-bindings)
+                  nil)
+              (type-error (condition)
+                          condition))))
+       (expect condition :to-be-truthy)
+       (expect (type-error-datum condition) :to-be duplicate-bindings)
+       (expect (type-error-expected-type condition) :to-equal 'list))
+     (let ((condition
+            (handler-case
+                (progn
+                  (call-with-environment-variables
+                   (lambda () nil)
+                   invalid-value-bindings)
+                  nil)
+              (type-error (condition)
+                          condition))))
+       (expect condition :to-be-truthy)
+       (expect (type-error-datum condition) :to-equal 42)))) (it
+  "preserves validation results across the sixteen-binding cutoff"
+  (let* ((sixteen
+          (loop for index below 16
+                collect (list
+                         (format nil "CL_HOST_KIT_ENV_CUTOFF_~D" index)
+                         (format nil "value-~D" index))))
+         (seventeen
+          (append sixteen
+                  (list (list "CL_HOST_KIT_ENV_CUTOFF_16" "value-16"))))
+         (validated-sixteen
+          (host-kit::%validate-environment-bindings sixteen))
+         (validated-seventeen
+          (host-kit::%validate-environment-bindings seventeen)))
+    (expect validated-sixteen :to-equal sixteen)
+    (expect validated-seventeen :to-equal seventeen)
+    (expect (subseq validated-seventeen 0 16)
+            :to-equal validated-sixteen)))
   (it
     "validates every binding before changing the environment"
     (let ((name "CL_HOST_KIT_SCOPED_ENV_VALIDATE_TEST"))

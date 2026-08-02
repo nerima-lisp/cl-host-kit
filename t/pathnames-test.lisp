@@ -162,31 +162,53 @@
                                                   (probe-file scratch)))))
         (delete-directory-tree scratch :if-does-not-exist :ignore)))))
 
-(describe "pathname-within-p"
-  (it "recognizes a pathname below its directory"
-    (expect (pathname-within-p "/srv/app/cache/state.txt" "/srv/app/")
-            :to-be-truthy))
-
-  (it "rejects a sibling pathname and parent traversal outside the directory"
-    (expect (pathname-within-p "/srv/other/state.txt" "/srv/app/")
-            :to-be-falsy)
-    (expect (pathname-within-p "/srv/app/cache/../../other/state.txt" "/srv/app/")
-            :to-be-falsy))
-
-  (it "resolves ancestor symbolic links only when requested"
-    (call-with-temporary-directory
-      (lambda (scratch)
-        (let* ((root (merge-pathnames "root/" scratch))
-               (outside (merge-pathnames "outside/" scratch))
-               (alias (merge-pathnames "alias" root))
-               (candidate (merge-pathnames "alias/missing.txt" root)))
-          (ensure-directory-tree root)
-          (ensure-directory-tree outside)
-          (create-symbolic-link (namestring outside) alias)
-          (expect (pathname-within-p candidate root) :to-be-truthy)
-          (expect (pathname-within-p candidate root :resolve-symlinks t)
-                  :to-be-falsy)))
-      :prefix "cl-host-kit-pathname-within-")))
+(describe
+ "pathname-within-p"
+ (it
+  "accepts the directory itself and a child pathname"
+  (expect (pathname-within-p "/srv/app/" "/srv/app/") :to-be-truthy)
+  (expect
+   (pathname-within-p "/srv/app/cache/state.txt" "/srv/app/")
+   :to-be-truthy))
+ (it
+  "handles deep descendants and directories longer than the candidate"
+  (expect
+   (pathname-within-p
+    "/srv/app/one/two/three/four/five/six/seven/eight/state.txt"
+    "/srv/app/")
+   :to-be-truthy)
+  (expect (pathname-within-p "/srv/app/" "/srv/app/cache/deep/") :to-be-falsy))
+ (it
+  "rejects sibling and component-boundary pathnames"
+  (expect (pathname-within-p "/srv/other/state.txt" "/srv/app/") :to-be-falsy)
+  (expect
+   (pathname-within-p "/srv/application/state.txt" "/srv/app/")
+   :to-be-falsy))
+ (it
+  "rejects parent traversal outside the directory"
+  (expect
+   (pathname-within-p "/srv/app/cache/../../other/state.txt" "/srv/app/")
+   :to-be-falsy))
+ (it
+  "absolutizes relative arguments once before lexical normalization"
+  (let ((*default-pathname-defaults* #P"/srv/work/"))
+    (expect (pathname-within-p "app/cache/state.txt" "app/") :to-be-truthy)
+    (expect (pathname-within-p "outside/state.txt" "app/") :to-be-falsy)))
+ (it
+  "resolves ancestor symbolic links only when requested"
+  (call-with-temporary-directory
+   (lambda (scratch)
+     (let* ((root (merge-pathnames "root/" scratch))
+            (outside (merge-pathnames "outside/" scratch))
+            (alias (merge-pathnames "alias" root))
+            (candidate (merge-pathnames "alias/missing.txt" root)))
+       (ensure-directory-tree root)
+       (ensure-directory-tree outside)
+       (create-symbolic-link (namestring outside) alias)
+       (expect (pathname-within-p candidate root) :to-be-truthy)
+       (expect (pathname-within-p candidate root :resolve-symlinks t) :to-be-falsy)))
+   :prefix
+   "cl-host-kit-pathname-within-")))
 
 (describe "relative-pathname"
   (it "preserves a file name below the base directory"

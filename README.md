@@ -86,14 +86,16 @@ nix run .#bench      # microbenchmarks
 nix run .#coverage   # SBCL/SB-COVER HTML report; the `coverage` check gates it
 ```
 
-Each benchmark case targets 20 ms of work before three warmups and seven
-samples, capped at 250 operations, with full GCs bracketing both phases so
-their cost stays out of individual samples. Select one group with
-`CL_HOST_KIT_BENCHMARK=splits|pathnames|filesystem`. The runner also compares
-result-equivalent operations against ASDF's bundled `uiop`, which is loaded by
-the benchmark only and never by the library system; a figure below `1.00x`
-means cl-host-kit used less time or allocation in that local run, not that it
-is universally faster.
+Each benchmark case targets 100 ms of work before three warmups and 16 measured
+samples, capped at 1,000,000 operations. The sample count must be even for
+balanced ABBA ordering, and full GCs keep collection cost out of each paired
+measurement. Select one group with
+`CL_HOST_KIT_BENCHMARK=splits|joins|pathnames|environment|process|filesystem`.
+The runner reports paired time and allocation comparisons against both ASDF's
+bundled `uiop` and embedded result-equivalent versions of the previous
+implementations. UIOP is loaded by the benchmark only, never by the library
+system; a figure below `1.00x` means cl-host-kit used less time or allocation in
+that local run, not that it is universally faster.
 
 ## Contributing
 
