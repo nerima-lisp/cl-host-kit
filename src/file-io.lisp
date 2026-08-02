@@ -444,6 +444,21 @@ same file when FOLLOW-SYMLINKS is true."
     (when synchronize
       (%synchronize-pathname target-parent)))
 
+  (defun %copy-directory-tree-with-metadata (source target source-metadata synchronize)
+    "Validate, stage, and publish SOURCE's tree at TARGET using SOURCE-METADATA.
+Lets callers that already hold SOURCE's metadata (COPY-PATH) skip a redundant
+FILE-METADATA call that COPY-DIRECTORY-TREE would otherwise repeat."
+    (let ((target-parent (parent-directory-pathname target)))
+      (%validate-directory-tree-copy source target source-metadata)
+      (call-with-temporary-directory
+       (lambda (staging)
+         (%stage-and-publish-directory-tree
+          source source-metadata target target-parent staging synchronize))
+       :directory target-parent
+       :prefix ".host-kit-copy-"
+       :keep t)
+      target))
+
   (defun copy-directory-tree (source target &key (synchronize nil))
     "Copy SOURCE's directory tree to an absent TARGET and return TARGET.
 SOURCE must be a real directory, not a symbolic link. Regular files are copied

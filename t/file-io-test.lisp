@@ -517,7 +517,7 @@
         (delete-file source)
         (rename-file replacement source)
         (signals error
-          (%copy-regular-file-atomically
+          (host-kit::%copy-regular-file-atomically
            source target metadata nil nil))
         (expect (path-exists-p target) :to-be nil)))))
   (it
@@ -531,7 +531,7 @@
       (let ((stale-metadata (file-metadata source)))
         (set-file-mode source #o741)
         (set-file-times source :modification-time modification-time)
-        (%copy-regular-file-atomically
+        (host-kit::%copy-regular-file-atomically
          source target stale-metadata nil nil)
         (let ((copied-metadata (file-metadata target)))
           (expect (file-metadata-mode copied-metadata)
