@@ -220,7 +220,13 @@ consumer failed and STOP-WHEN-OUTPUT-FAILS-P is true, or :TIMED-OUT."
     (multiple-value-bind (stdout-consumer stderr-consumer) (%make-program-output-consumers output-consumer)
       (let* ((input-stream (%make-program-input-stream input input-writer))
              (process
-            (sb-ext:run-program
+            ;; SBCL's RUN-PROGRAM inherits the caller's process environment
+            ;; only when :ENVIRONMENT is absent from the call, not merely NIL
+            ;; -- passing it unconditionally would launch every child with an
+            ;; empty environment (no PATH, no HOME) whenever ENVIRONMENT is
+            ;; NIL here. Omit the keyword entirely in that case.
+            (apply
+              #'sb-ext:run-program
               program
               arguments
               :search
@@ -233,10 +239,9 @@ consumer failed and STOP-WHEN-OUTPUT-FAILS-P is true, or :TIMED-OUT."
               :stream
               :error
               :stream
-              :environment
-              environment
               :directory
-              (%normalize-program-directory directory)))
+              (%normalize-program-directory directory)
+              (when environment (list :environment environment))))
              (termination-target (%process-termination-target process))
              (stdout-capture nil)
              (stdout-sink nil)
