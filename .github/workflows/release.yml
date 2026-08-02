@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           asd_version="$(perl -ne '
             if (/^\s*:version "([^"]+)"/) {
-              print "$1\\n";
+              print "$1";
               exit;
             }
           ' "$PACKAGE.asd")"
