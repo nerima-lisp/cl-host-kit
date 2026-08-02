@@ -143,8 +143,10 @@ scope macros.
   cannot extend command completion indefinitely.
   `environment` is a proper list of `NAME=VALUE` strings: names must be nonempty
   and neither names nor values may contain NUL; only the first `=` separates the
-  name from the value. `directory` is a string or pathname normalized to an
-  absolute directory pathname before start.
+  name from the value. When omitted (or `NIL`), the child inherits this
+  process's environment; when supplied, it replaces the child's environment
+  entirely rather than extending it. `directory` is a string or pathname
+  normalized to an absolute directory pathname before start.
 - **`(ensure-program-success result &key (expected-exit-codes '(0)))`** — Return
   `result` unchanged when its exit code belongs to the proper list
   `expected-exit-codes`; else
