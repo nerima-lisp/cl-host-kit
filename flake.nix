@@ -27,7 +27,7 @@
     # `CL_SOURCE_REGISTRY`, exactly as it was before this file adopted the
     # preset, sidestepping that mismatch entirely.
     cl-nix-forge = {
-      url = "github:nerima-lisp/cl-nix-forge/v0.4.0";
+      url = "github:nerima-lisp/cl-nix-forge/v0.5.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
