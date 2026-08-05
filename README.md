@@ -44,7 +44,7 @@ callers using threads must provide their own process-wide exclusion.
 ```nix
 # flake.nix
 inputs.cl-host-kit = {
-  url = "github:nerima-lisp/cl-host-kit/v0.2.1";
+  url = "github:nerima-lisp/cl-host-kit/v0.3.1";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 ```
