@@ -54,6 +54,7 @@ implementation dependency."
   :pathname "t"
   :serial t
   :components ((:file "package")
+               (:file "filesystem-test-support")
                (:file "conditions-test")
                (:file "strings-test")
                (:file "pathnames-test")
@@ -61,7 +62,6 @@ implementation dependency."
                (:file "process-test")
                (:file "process-streaming-test")
                (:file "working-directory-test")
-               (:file "filesystem-test-support")
                (:file "filesystem-metadata-test")
                (:file "directory-operations-test")
                (:file "temporary-resources-test")

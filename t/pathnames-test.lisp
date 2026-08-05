@@ -196,8 +196,7 @@
     (expect (pathname-within-p "outside/state.txt" "app/") :to-be-falsy)))
  (it
   "resolves ancestor symbolic links only when requested"
-  (call-with-temporary-directory
-   (lambda (scratch)
+  (with-scratch-directory (scratch)
      (let* ((root (merge-pathnames "root/" scratch))
             (outside (merge-pathnames "outside/" scratch))
             (alias (merge-pathnames "alias" root))
@@ -206,9 +205,7 @@
        (ensure-directory-tree outside)
        (create-symbolic-link (namestring outside) alias)
        (expect (pathname-within-p candidate root) :to-be-truthy)
-       (expect (pathname-within-p candidate root :resolve-symlinks t) :to-be-falsy)))
-   :prefix
-   "cl-host-kit-pathname-within-")))
+       (expect (pathname-within-p candidate root :resolve-symlinks t) :to-be-falsy)))))
 
 (describe "relative-pathname"
   (it "preserves a file name below the base directory"

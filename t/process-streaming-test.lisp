@@ -237,20 +237,19 @@
                     internal-time-units-per-second)
                  1d0)
               :to-be-truthy)))))
-  (it
-    "rejects constant lexical bindings during macroexpansion"
-    (dolist
-      (form
-        (quote
-          ((with-program-input (t "program" (quote ())) nil)
-           (with-program-input (42 "program" (quote ())) nil)
-           (with-program-result (nil "program" (quote ())) nil)
-           (with-program-result (42 "program" (quote ())) nil)
-           (with-program-output (t character "program" (quote ())) nil)
-           (with-program-output (42 character "program" (quote ())) nil)
-           (with-program-output (channel t "program" (quote ())) nil)
-           (with-program-output (channel 42 "program" (quote ())) nil))))
-      (signals error (macroexpand-1 form))))
+  (progn
+    (it-each ((t) (42))
+        "rejects ~S as a WITH-PROGRAM-INPUT stream binding during macroexpansion"
+        (invalid-stream)
+      (signals error (macroexpand-1 `(with-program-input (,invalid-stream "program" (quote ())) nil))))
+    (it-each ((nil) (42))
+        "rejects ~S as a WITH-PROGRAM-RESULT result binding during macroexpansion"
+        (invalid-result)
+      (signals error (macroexpand-1 `(with-program-result (,invalid-result "program" (quote ())) nil))))
+    (it-each ((t (quote character)) (42 (quote character)) ((quote channel) t) ((quote channel) 42))
+        "rejects ~S ~S as a WITH-PROGRAM-OUTPUT channel/character binding pair during macroexpansion"
+        (invalid-channel invalid-character)
+      (signals error (macroexpand-1 `(with-program-output (,invalid-channel ,invalid-character "program" (quote ())) nil)))))
   (it
     "rejects malformed streaming I/O clauses during macroexpansion"
     (dolist
