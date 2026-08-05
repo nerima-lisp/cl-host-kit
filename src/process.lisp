@@ -289,16 +289,7 @@ stream. The process output remains available in the returned PROCESS-RESULT."
                   :directory directory
                   :max-output-characters max-output-characters
                   :input-writer thunk))
-  (defmacro with-program-input ((stream program arguments &rest options) &body body)
-    "Evaluate BODY with STREAM bound to PROGRAM's standard input stream."
-    (unless (and (symbolp stream) (not (constantp stream)))
-      (error "STREAM must be a non-constant symbol: ~S" stream))
-    `(call-with-program-input
-      (lambda (,stream)
-        ,@body)
-      ,program
-      ,arguments
-      ,@options)))
+  (define-with-macro with-program-input (stream) call-with-program-input))
 
 (progn
   (defun run-program (program arguments &key input
@@ -345,18 +336,7 @@ is captured concurrently and bounded by MAX-OUTPUT-CHARACTERS per channel."
               (second (second clause))
               (cddr clause))))
 
-  (defmacro with-program-output ((channel character program arguments &rest options) &body body)
-    "Evaluate BODY for each character emitted by PROGRAM."
-    (unless (%macro-variable-name-p channel)
-      (error "CHANNEL must be a non-constant symbol: ~S" channel))
-    (unless (%macro-variable-name-p character)
-      (error "CHARACTER must be a non-constant symbol: ~S" character))
-    `(call-with-program-output
-      (lambda (,channel ,character)
-        ,@body)
-      ,program
-      ,arguments
-      ,@options))
+  (define-with-macro with-program-output (channel character) call-with-program-output)
 
   (defmacro with-program-io ((program arguments &rest options) input-clause output-clause)
     "Evaluate input and output clauses while streaming PROGRAM I/O.
