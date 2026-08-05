@@ -4,6 +4,9 @@
 ;;;; TEMPORARY-RESOURCES and FILESYSTEM-QUERY being loaded first.
 (in-package #:host-kit)
 
+(defconstant +default-io-buffer-size+ 65536
+  "Default chunk size, in characters or octets, for incremental file I/O.")
+
 (defun %existing-file-mode (pathspec)
   "Return PATHSPEC's access permission bits when it is an existing regular file."
   (let ((pathname (file-exists-p pathspec)))
@@ -92,7 +95,7 @@ concurrent creator."
 
 (defun %read-octet-stream (stream)
   "Return every octet remaining in STREAM without relying on FILE-LENGTH."
-  (let ((contents (make-array 65536
+  (let ((contents (make-array +default-io-buffer-size+
                               :element-type (quote (unsigned-byte 8))
                               :adjustable t))
         (size 0))
@@ -146,7 +149,7 @@ Returning :STOP ends enumeration.  The stream closes on every exit path."
         when full-buffer-p
           do (setf buffer (make-array (length buffer) :element-type (array-element-type buffer)))))
 
-(defun call-with-file-string-chunks (thunk pathname &key (buffer-size 65536) (external-format :default))
+(defun call-with-file-string-chunks (thunk pathname &key (buffer-size +default-io-buffer-size+) (external-format :default))
   "Call THUNK with each fresh string chunk read from PATHNAME.
 
 THUNK may return :STOP to stop reading early.  BUFFER-SIZE is the maximum
@@ -180,7 +183,7 @@ line terminators, matching repeated READ-LINE calls."
     (with-open-file (stream pathspec :direction :input :element-type '(unsigned-byte 8))
       (%read-octet-stream stream))))
 
-(defun call-with-file-octet-chunks (thunk pathname &key (buffer-size 65536))
+(defun call-with-file-octet-chunks (thunk pathname &key (buffer-size +default-io-buffer-size+))
   "Call THUNK with each fresh octet-vector chunk read from PATHNAME.
 
 THUNK may return :STOP to stop reading early.  BUFFER-SIZE is the maximum
@@ -253,7 +256,7 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
     pathname))
 
 (defun %copy-octet-stream (input output)
-  (let ((buffer (make-array 65536 :element-type '(unsigned-byte 8))))
+  (let ((buffer (make-array +default-io-buffer-size+ :element-type '(unsigned-byte 8))))
     (loop for end = (read-sequence buffer input)
           while (plusp end)
           do (write-sequence buffer output :end end))))
