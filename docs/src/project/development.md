@@ -77,7 +77,21 @@ Generate an SBCL/SB-COVER HTML report in a temporary directory:
 nix run .#coverage
 ```
 
-The flake `coverage` check verifies report generation.
+The flake `coverage` check verifies report generation and gates on a minimum
+expression and branch percentage, scraped from the report and defined in
+`flake.nix`'s `coverageThresholdCheckScript`. Both minimums sit close to
+their measured value rather than at a round number: six branch slots in
+`src/filesystem-metadata.lisp`'s `file-metadata` struct are `DEFSTRUCT :TYPE`
+declarations that SB-COVER always marks "neither branch taken", regardless of
+whether the runtime type check they compile to is exercised, so 100% is not
+reachable while they are counted. When a change legitimately shrinks the
+total instrumented surface (for example, deleting hand-written validation
+duplicated by `define-with-macro`), the achieved percentage can drop even
+though nothing became less tested -- removing already-covered code lowers a
+ratio that was above its own average. Re-derive the minimum from a fresh
+report rather than loosening it to paper over an actual coverage regression;
+`flake.nix`'s comment above the thresholds records the reasoning and the
+exact numbers each minimum was last set from.
 
 The test system (`cl-host-kit/test`) uses [`cl-weave`](https://github.com/nerima-lisp/cl-weave)
 and lives under `t/`, one test file per `src/` file.
