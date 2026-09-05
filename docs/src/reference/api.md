@@ -7,8 +7,8 @@ single source of truth for what is exported).
 
 `src/conditions.lisp`
 
-- **`host-kit-error`** — Base condition for every error `cl-host-kit`
-  signals. Subtype of `error`.
+- **`host-kit-error`** — Base condition for library-specific failures. Subtype
+  of `error`.
 - **`host-operation-failed`** (`operation` `target` `reason`) — Signalled
   when an underlying OS call fails. `host-operation-failed-operation` is a
   keyword naming the attempted operation; `host-operation-failed-target` is
@@ -30,7 +30,7 @@ single source of truth for what is exported).
   `process-exit-error-arguments`, `process-exit-error-exit-code`,
   `process-exit-error-signal`, `process-exit-error-expected-exit-codes`, and
   `process-exit-error-result`; use the last to inspect captured output
-  deliberately.
+  when output inspection is needed.
 
 ## Environment and host identity
 
@@ -186,7 +186,7 @@ scope macros.
   `input-thunk` runs on a dedicated worker with the writable input stream;
   `output-thunk` receives `:stdout` or `:stderr` and each character on a
   dedicated reader thread per channel. Output callback calls can interleave,
-  so synchronize shared state. The returned `process-result` deliberately has
+  so synchronize shared state. The returned `process-result` has
   empty output strings and false truncation flags. An output callback
   condition terminates and reaps the child process group before being
   re-signalled. An input callback condition is re-signalled after the child is

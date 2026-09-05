@@ -347,7 +347,7 @@
       1
       (lambda () (host-kit:split-string input :separator separator))
       (lambda () (linear-split-string-reference input separator))
-      :reference-label "linear-old"
+      :reference-label "linear-baseline"
       :payload-bytes (length input)))
   (defun benchmark-splits ()
     (assert-split-edge-semantics)
@@ -414,7 +414,7 @@
         (benchmark-join-case (format nil "~A/vector" name) vector-input separator)))))
 
 (progn
-  (defun pathname-within-old-reference (pathspec directory)
+  (defun pathname-within-baseline (pathspec directory)
     (let* ((pathname (host-kit:ensure-absolute-pathname pathspec))
            (directory
              (host-kit:ensure-directory-pathname
@@ -459,8 +459,8 @@
           (lambda ()
             (host-kit:pathname-within-p child directory))
           (lambda ()
-            (pathname-within-old-reference child directory))
-          :reference-label "subseq-old")))
+            (pathname-within-baseline child directory))
+          :reference-label "subseq-baseline")))
     (let ((path (relative-path 10)))
       (benchmark-comparison
         "ensure-directory/10"
@@ -470,7 +470,7 @@
         (lambda ()
           (uiop:ensure-directory-pathname path))))))
 (progn
-  (defun validate-environment-bindings-old-reference (bindings)
+  (defun validate-environment-bindings-baseline (bindings)
     (check-type bindings list)
     (unless (list-length bindings)
       (error (quote type-error) :datum bindings :expected-type (quote list)))
@@ -495,8 +495,8 @@
         (lambda ()
           (host-kit::%validate-environment-bindings bindings))
         (lambda ()
-          (validate-environment-bindings-old-reference bindings))
-        :reference-label "linear-old")))
+          (validate-environment-bindings-baseline bindings))
+        :reference-label "linear-baseline")))
   (defun benchmark-find-program ()
     (let* ((missing-directories
              (loop for index below 64
@@ -517,7 +517,7 @@
           (host-kit:find-program "sh" :path last-path))))))
 
 (progn
-  (defun append-octet-buffer-old-reference (contents size buffer end)
+  (defun append-octet-buffer-baseline (contents size buffer end)
     (let* ((required-size (+ size end))
            (contents
              (if (<= required-size (array-total-size contents))
@@ -528,7 +528,7 @@
                         (* 2 (array-total-size contents)))))))
       (replace contents buffer :start1 size :end1 required-size :end2 end)
       (values contents required-size)))
-  (defun read-octet-stream-old-reference (stream)
+  (defun read-octet-stream-baseline (stream)
     (let ((buffer
             (make-array 65536 :element-type (quote (unsigned-byte 8))))
           (contents
@@ -539,15 +539,15 @@
       (loop for end = (read-sequence buffer stream)
             while (plusp end)
             do (multiple-value-setq (contents size)
-                 (append-octet-buffer-old-reference
+                 (append-octet-buffer-baseline
                    contents size buffer end)))
       (adjust-array contents size)))
-  (defun read-file-octets-old-reference (path)
+  (defun read-file-octets-baseline (path)
     (with-open-file (stream path
                             :direction :input
                             :element-type (quote (unsigned-byte 8)))
-      (read-octet-stream-old-reference stream)))
-  (defun directory-tree-two-stat-old-reference (directory)
+      (read-octet-stream-baseline stream)))
+  (defun directory-tree-two-stat-baseline (directory)
     (let ((metadata (host-kit:file-metadata directory)))
       (unless (eq (host-kit:file-metadata-kind metadata) :directory)
         (error "~S does not denote a directory" directory)))
@@ -622,8 +622,8 @@
         (lambda ()
           (host-kit:read-file-octets path))
         (lambda ()
-          (read-file-octets-old-reference path))
-        :reference-label "buffer-old"
+          (read-file-octets-baseline path))
+        :reference-label "buffer-baseline"
         :payload-bytes bytes))
     (benchmark-comparison
       "directory root metadata"
@@ -635,8 +635,8 @@
           directory
           :max-depth 0))
       (lambda ()
-        (directory-tree-two-stat-old-reference directory))
-      :reference-label "two-stat-old")))
+        (directory-tree-two-stat-baseline directory))
+      :reference-label "two-stat-baseline")))
 
 (defparameter +benchmark-groups+
   (quote ("splits" "joins" "pathnames" "environment" "process" "filesystem")))

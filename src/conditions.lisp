@@ -1,6 +1,7 @@
 ;;;; src/conditions.lisp
 ;;;;
-;;;; failure this library signals with one HANDLER-CASE clause. Concrete
+;;;; All failures this library signals can be handled with one HANDLER-CASE
+;;;; clause. Concrete
 ;;;; subtypes distinguish OS failures and program failures caused by a
 ;;;; timeout or an unexpected terminal status.
 (in-package #:host-kit)

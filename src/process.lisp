@@ -1,9 +1,6 @@
 ;;;; src/process.lisp
 ;;;;
-;;;; RUN-PROGRAM and its CPS scope macros: a small direct SBCL process API
-;;;; that accepts an argv list rather than shell text. Orchestrates
-;;;; PROCESS-RESULT (process-result.lisp) and the concurrent capture engine
-;;;; (process-io.lisp) into the public entry points.
+;;;; Process execution and CPS scope macros.
 (in-package #:host-kit)
 
 (progn

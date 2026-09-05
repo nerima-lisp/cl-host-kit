@@ -189,13 +189,14 @@
   "split-string implementation"
   (it
     "expands the shared scanning macro"
-    (expect
-      (macroexpand-1
-        (quote
-          (host-kit::%split-string-when
-            (string separator character nil)
-            (char= character separator))))
-      :to-be-truthy)))
+    (let ((expansion
+            (macroexpand-1
+              (quote
+                (host-kit::%split-string-when
+                  (string separator character nil)
+                  (char= character separator))))))
+      (expect (consp expansion) :to-be-truthy)
+      (expect (first expansion) :to-be 'let))))
 
 (describe
   "string-prefix-p / string-suffix-p properties"

@@ -1,6 +1,6 @@
 ;;;; src/pathnames.lisp
 ;;;;
-;;;; Pathname coercion and predicates. The public contract is intentionally
+;;;; Pathname coercion and predicates. The public contract is
 ;;;; direct and small; it does not reproduce UIOP's optional-argument surface.
 (in-package #:host-kit)
 
@@ -153,15 +153,17 @@ does not require PATHSPEC itself to exist."
   (let* ((pathname (ensure-absolute-pathname pathspec))
          (directory
            (ensure-directory-pathname (ensure-absolute-pathname directory)))
-         (pathname (if resolve-symlinks (truenamize pathname) pathname))
-         (directory
+         (resolved-pathname (if resolve-symlinks (truenamize pathname) pathname))
+         (resolved-directory
            (if resolve-symlinks
                (ensure-directory-pathname (truenamize directory))
                directory))
-         (pathname-components (%normalized-directory-components pathname))
-         (directory-components (%normalized-directory-components directory)))
-    (and (equal (pathname-host pathname) (pathname-host directory))
-         (equal (pathname-device pathname) (pathname-device directory))
+         (pathname-components
+           (%normalized-directory-components resolved-pathname))
+         (directory-components
+           (%normalized-directory-components resolved-directory)))
+    (and (equal (pathname-host resolved-pathname) (pathname-host resolved-directory))
+         (equal (pathname-device resolved-pathname) (pathname-device resolved-directory))
          (%component-prefix-p directory-components pathname-components))))
 
 (defun relative-pathname (pathspec base)

@@ -6,9 +6,8 @@
 nix build github:nerima-lisp/cl-host-kit
 ```
 
-To pin it as a flake input, follow the same pattern the rest of the
-nerima-lisp org uses for sibling packages: pull the source only
-(`flake = false`) and pin to a release tag rather than the default branch.
+To pin it as a flake input, pull the source only (`flake = false`) and pin to a
+release tag rather than the default branch.
 
 ```nix
 inputs.cl-host-kit = {
@@ -36,7 +35,7 @@ framework; that dependency does not affect the shipped library.
 ## Supported implementation
 
 SBCL only. The system depends directly on SBCL's bundled `sb-posix` contrib,
-and is intentionally not loadable on other Common Lisp implementations.
+and is not loadable on other Common Lisp implementations.
 
 ## A tour of the surface
 
@@ -44,19 +43,19 @@ and is intentionally not loadable on other Common Lisp implementations.
 (asdf:load-system "cl-host-kit")
 
 ;; Environment variables.
-(host-kit:getenv "HOME")               ; => "/Users/ada"
+(host-kit:getenv "HOME")               ; => a string or NIL
 (setf (host-kit:getenv "MY_VAR") "1")  ; set
 (setf (host-kit:getenv "MY_VAR") nil)  ; unset
 (host-kit:with-environment-variable ("MY_VAR" "temporary")
   (host-kit:getenv "MY_VAR"))          ; restored after the body exits
 (host-kit:command-line-arguments)      ; => ("--serve" "8080")
-(host-kit:hostname)                     ; => "build-host"
-(host-kit:user-config-directory)        ; => #P"/Users/ada/.config/"
-(host-kit:user-data-directory)          ; => #P"/Users/ada/.local/share/"
-(host-kit:user-runtime-directory)       ; => #P"/run/user/501/" or NIL
+(host-kit:hostname)                     ; => the current host name
+(host-kit:user-config-directory)        ; => a directory pathname or NIL
+(host-kit:user-data-directory)          ; => a directory pathname or NIL
+(host-kit:user-runtime-directory)       ; => a directory pathname or NIL
 
 ;; Working directory.
-(host-kit:getcwd)                      ; => #P"/Users/ada/project/"
+(host-kit:getcwd)                      ; => the current directory pathname
 (host-kit:chdir "/tmp/")
 (host-kit:with-working-directory ("/tmp/")
   (host-kit:directory-files "."))      ; restored after the body exits
@@ -115,10 +114,11 @@ and is intentionally not loadable on other Common Lisp implementations.
 
 ## Handling failures
 
-Every function that touches the OS wraps an underlying failure in
-`host-operation-failed`, a subtype of the package's base condition
-`host-kit-error`. Catch one clause to handle every failure this library can
-signal:
+Most underlying OS failures are reported as `host-operation-failed`, a subtype
+of `host-kit-error`. Process deadlines, unsuccessful process results, and file
+lock deadlines have dedicated condition types. Argument validation can also
+signal ordinary type errors. For a filesystem failure, handle the operation
+condition directly:
 
 ```lisp
 (handler-case
@@ -132,7 +132,7 @@ signal:
 
 ## Next steps
 
-- [Why cl-host-kit](guide/why.md) for what this library deliberately does not
+- [Why cl-host-kit](guide/why.md) for what this library does not
   do, and how it relates to `uiop` and `cl-boundary-kit`.
 - [Compatibility with uiop](reference/compatibility.md) for exactly which uiop
   symbols map to which `host-kit` function.

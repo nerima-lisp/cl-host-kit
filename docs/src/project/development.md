@@ -1,10 +1,7 @@
 # Development
 
-This page covers the development workflow, how to run the tests and
-benchmarks, and the conventions the codebase follows. The org-wide
-contribution guide, code of conduct, security policy and support channels
-live in [`nerima-lisp/.github`](https://github.com/nerima-lisp/.github); see
-the [home page](../index.md#contributing-and-support) for the links.
+The org-wide contribution guide, code of conduct, security policy, and support
+links are listed on the [home page](../index.md#contributing-and-support).
 
 ## Development environment
 
@@ -82,16 +79,9 @@ expression and branch percentage, scraped from the report and defined in
 `flake.nix`'s `coverageThresholdCheckScript`. Both minimums sit close to
 their measured value rather than at a round number: six branch slots in
 `src/filesystem-metadata.lisp`'s `file-metadata` struct are `DEFSTRUCT :TYPE`
-declarations that SB-COVER always marks "neither branch taken", regardless of
-whether the runtime type check they compile to is exercised, so 100% is not
-reachable while they are counted. When a change legitimately shrinks the
-total instrumented surface (for example, deleting hand-written validation
-duplicated by `define-with-macro`), the achieved percentage can drop even
-though nothing became less tested -- removing already-covered code lowers a
-ratio that was above its own average. Re-derive the minimum from a fresh
-report rather than loosening it to paper over an actual coverage regression;
-`flake.nix`'s comment above the thresholds records the reasoning and the
-exact numbers each minimum was last set from.
+declarations that SB-COVER reports as uncovered even when their runtime checks
+are exercised. Keep threshold changes tied to a fresh coverage report and
+record the reason in `flake.nix`.
 
 The test system (`cl-host-kit/test`) uses [`cl-weave`](https://github.com/nerima-lisp/cl-weave)
 and lives under `t/`, one test file per `src/` file.

@@ -1,8 +1,6 @@
 ;;;; src/process-result.lisp
 ;;;;
-;;;; The process data model (PROCESS-RESULT and its exit-code contract) and
-;;;; PATH-based program lookup -- everything about locating and describing a
-;;;; process, as opposed to running one.
+;;;; Process results and PATH-based program lookup.
 (in-package #:host-kit)
 
 (defconstant +default-command-timeout-seconds+ 30d0
