@@ -1,15 +1,10 @@
-;;;; cl-host-kit.asd
-
-;;; This form comes FIRST, before any defsystem. ASDF binds *package* to
-;;; ASDF-USER only for a file it loads itself; read any other way -- a REPL
-;;; `load`, an editor evaluating the buffer, flake.nix parsing :version -- the
-;;; file is read in whatever package happens to be current. Saying it makes
-;;; the file self-contained.
+;;; Keep IN-PACKAGE first: direct LOAD and flake version parsing must not depend
+;;; on the package active in the caller.
 (in-package #:asdf-user)
 
 (asdf:defsystem "cl-host-kit"
   :description "SBCL-native host-environment toolkit: pathnames, filesystem, environment variables, and direct program execution"
-  :long-description "A deliberately narrow, SBCL-native toolkit for pathname,
+  :long-description "A narrow, SBCL-native toolkit for pathname,
 filesystem, environment-variable, direct-program-execution, and
 string-splitting operations. It exposes a documented subset of UIOP-shaped
 operations with the sb-posix contrib that SBCL provides as the only

@@ -2,7 +2,7 @@
 
 `cl-host-kit` is not a UIOP compatibility layer. It exposes a small,
 SBCL-focused host API with its own contracts, direct argument shapes, and
-structured failure conditions. Migrate each call deliberately rather than
+structured failure conditions. Migrate each call by checking its contract rather than
 changing a package prefix mechanically.
 
 ## Direct replacements
@@ -22,7 +22,7 @@ changing a package prefix mechanically.
 | `uiop:ensure-directory-pathname` | `ensure-directory-pathname` | Direct pathname conversion. |
 | `uiop:ensure-absolute-pathname` | `ensure-absolute-pathname` | Optional defaults is positional; no UIOP keyword options are accepted. |
 | `uiop:pathname-directory-pathname` | `pathname-directory-pathname` | Strips name and type. |
-| `uiop:pathname-parent-directory-pathname` | `parent-directory-pathname` | The name is intentionally shorter; a filesystem root is its own parent. |
+| `uiop:pathname-parent-directory-pathname` | `parent-directory-pathname` | The name is shorter; a filesystem root is its own parent. |
 | `uiop:truenamize` | `truenamize` | Resolves the closest existing parent, preserves any missing suffix, and lexically cancels `.`/`..` components in that suffix, without failing for a missing target. |
 | `uiop:file-exists-p` | `file-exists-p` | Returns a truename for regular files, otherwise `NIL`. |
 | `uiop:directory-exists-p` | `directory-exists-p` | Returns a truename for directories, otherwise `NIL`. |
@@ -53,7 +53,7 @@ seconds, and nonzero exits remain result data. Call `ensure-program-success`
 where a nonzero exit must signal an error.
 
 `launch-program`, `wait-process`, `terminate-process`, `process-alive-p`, and
-other asynchronous lifecycle APIs are intentionally absent. Use
+other asynchronous lifecycle APIs are absent. Use
 [`cl-process-kit`](https://github.com/nerima-lisp/cl-process-kit) for process
 handles, supervision, or concurrent process orchestration.
 

@@ -7,18 +7,16 @@
 An SBCL-native host-environment toolkit: pathname coercion and predicates,
 filesystem checks and non-recursive listing, scoped temporary resources, atomic
 whole-file I/O, environment-variable read/write, timeout-bounded direct program
-execution, and the string helpers that go with them. Unlike `uiop`, it is not a
-portability layer: every function takes only its documented arguments, returns
-concrete Common Lisp values, and signals a structured condition on failure.
-SBCL's own `sb-posix` contrib is the only dependency.
+execution, and string helpers. It is not a portability layer and uses SBCL's
+`sb-posix` contrib as its only implementation dependency.
 
 Full documentation is published at <https://nerima-lisp.github.io/cl-host-kit/>.
 The source for that site lives in [docs/src/](docs/src/).
 
 ## Quick Start
 
-Every OS-facing operation is scoped and restores what it changed, and every
-failure arrives as one condition type rather than a raw `sb-posix` error:
+Scoped helpers restore temporary environment and working-directory changes.
+OS-facing failures use the library's condition types:
 
 ```lisp
 (asdf:load-system "cl-host-kit")
@@ -58,7 +56,7 @@ find it and `(asdf:load-system "cl-host-kit")`.
 - [Getting started](https://nerima-lisp.github.io/cl-host-kit/getting-started/)
 - [API reference](https://nerima-lisp.github.io/cl-host-kit/reference/api/)
 - [Migrating from uiop](https://nerima-lisp.github.io/cl-host-kit/reference/compatibility/)
-  — direct replacements, and the UIOP concepts deliberately not supported.
+  — direct replacements, and the UIOP concepts not supported.
 
 Two boundaries worth knowing before you read further. `run-program` takes a
 direct argv list and never shell text, captures stdout and stderr without pipe

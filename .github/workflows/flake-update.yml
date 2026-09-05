@@ -9,8 +9,7 @@ permissions:
   contents: write # Push the update branch.
   pull-requests: write # Open the update PR.
 
-# Serialize a manual dispatch that overlaps the weekly schedule, so the two
-# runs cannot open competing update PRs.
+# Serialize scheduled and manual updates.
 concurrency:
   group: flake-update
   cancel-in-progress: false
@@ -25,8 +24,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Reuse the shared installer wiring (Cachix self-skips with no cache set),
-      # keeping the nix-installer SHA pin in exactly one place.
+      # Reuse the shared Nix setup.
       - uses: ./.github/actions/nix-setup
 
       - name: Update and check flake.lock
@@ -35,7 +33,7 @@ jobs:
           nix flake update
           nix flake check --print-build-logs
 
-      # Commits only the checked flake.lock change; no diff means no PR.
+      # Open a PR only for the checked lock-file change.
       - name: Create flake.lock update PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:

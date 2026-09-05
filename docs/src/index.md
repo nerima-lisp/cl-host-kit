@@ -2,9 +2,9 @@
 
 `cl-host-kit` is an **SBCL-native host-environment toolkit for Common
 Lisp**. It provides pathname coercion and predicates, filesystem existence
-checks and non-recursive listing, a temporary directory, environment-variable
-read/write, process termination, and the two string helpers that go with
-them.
+ checks and non-recursive listing, a temporary directory, environment-variable
+ read/write, process termination, and four string helpers:
+ `split-string`, `string-prefix-p`, `string-suffix-p`, and `join-strings`.
 
 The library targets SBCL only. Every OS-facing function is built on SBCL's
 `sb-posix` contrib or plain Lisp file operations. Its only implementation

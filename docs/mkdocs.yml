@@ -85,9 +85,8 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  # pymdownx.snippets is deliberately absent: its only use here was pulling the
-  # root CHANGELOG.md into docs/src/changelog.md, and neither file exists any
-  # more (2026-08-01 -- the GitHub Release description is the only changelog).
+  # Keep pymdownx.snippets disabled: no documentation file imports content from
+  # outside this tree, and the GitHub Release description is the only changelog.
   - pymdownx.superfences
   - attr_list
   - md_in_html
@@ -98,11 +97,7 @@ markdown_extensions:
       permalink: true
       title: On this page
 
-# Every page under docs/src/ must appear here: --strict fails the build on an
-# unlisted page. docs/src/ is split into guide/ reference/ project/, with only
-# index.md, getting-started.md and assets/ at the root, per the 2026-08-01
-# revision of DOCS_STANDARD.md. Home is index.md, not README.md, so
-# navigation.indexes finds it and there is only one README in the tree.
+# Keep every docs/src/ page in this navigation: --strict rejects unlisted pages.
 nav:
   - Home: index.md
   - Getting Started: getting-started.md

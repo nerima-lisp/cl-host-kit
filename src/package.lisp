@@ -1,9 +1,6 @@
 ;;;; src/package.lisp
 ;;;;
-;;;; The single public package. Every symbol a caller needs -- environment
-;;;; variables, the working directory, pathname coercion/predicates,
-;;;; filesystem queries, direct program execution, and string helpers -- is
-;;;; exported here and nothing else.
+;;;; Public package definition.
 (defpackage #:host-kit
   (:use #:cl)
   (:export

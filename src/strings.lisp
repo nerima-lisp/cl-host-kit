@@ -1,11 +1,5 @@
 ;;;; src/strings.lisp
-;;;;
-;;;; String helpers, scoped to exactly how the rest of nerima-lisp calls them
-;;;; today (see the org-wide call-site survey in the design notes):
-;;;; SPLIT-STRING accepts :MAX because upstream UIOP does, and its :SEPARATOR
-;;;; is always a bag of individual delimiter characters (a list of characters,
-;;;; or a string treated as one), never a multi-character delimiter sequence.
-;;;; STRING-PREFIX-P/STRING-SUFFIX-P are the plain two-argument predicates.
+;;;; String helpers compatible with the supported UIOP subset.
 (in-package #:host-kit)
 
 (defmacro %split-string-when ((string separator character remaining) delimiter-p)
@@ -97,7 +91,7 @@ for no limit."
                                   remaining-splits))))))
 
 (defun split-string (string &key (separator #\Space) max)
-  "Split STRING wherever any character in SEPARATOR (a list of characters, a string of characters, or a single character) appears, treating each separator character as an independent one-character delimiter. Consecutive separator characters produce empty-string segments between them, matching the behavior response-file and line-oriented callers in this org rely on.
+  "Split STRING wherever any character in SEPARATOR (a list of characters, a string of characters, or a single character) appears, treating each separator character as an independent one-character delimiter. Consecutive separator characters produce empty-string segments between them.
 
 When MAX is supplied, split at most CEILING(MAX) - 1 times and keep the remaining substring as the final segment."
   (check-type string string)

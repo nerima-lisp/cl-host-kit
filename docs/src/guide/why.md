@@ -1,14 +1,14 @@
 # Why cl-host-kit
 
-A handful of scope decisions explain most of this library's shape: why it
-exists next to `uiop`, why its API is deliberately narrower than `uiop`'s, why
-it calls `sb-posix` directly, and how it relates to `cl-boundary-kit`.
+The library makes four scope decisions: it targets SBCL, keeps its API narrower
+than `uiop`, calls `sb-posix` directly, and provides the host layer used by
+`cl-boundary-kit`.
 
 ## Why not just depend on uiop directly?
 
 ASDF makes UIOP readily available, but that does not make its broad API the
 right dependency for every SBCL-only application. `cl-host-kit` makes the
-SBCL-native host dependency explicit and provides a deliberately narrow
+SBCL-native host dependency explicit and provides a narrow
 contract (see [Compatibility](../reference/compatibility.md)). Applications that require
 portability or UIOP's broader API should keep using UIOP directly. Audit each
 dependent project before replacing a `uiop:` call.
@@ -29,7 +29,7 @@ targets SBCL, so it can call the underlying syscall directly.
 
 ## Why doesn't `delete-directory-tree` or `read-file-string` accept every uiop keyword argument?
 
-The API is deliberately narrow. Supporting additional keys would expand a
+The API is narrow. Supporting additional keys would expand a
 surface that this library does not currently specify or test. See
 [Compatibility](../reference/compatibility.md) for the supported arguments. If a future
 caller needs a dropped keyword, extend the function with a minor version bump

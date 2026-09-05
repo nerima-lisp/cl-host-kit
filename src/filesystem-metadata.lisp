@@ -274,10 +274,10 @@ link, signals HOST-OPERATION-FAILED."
                             (when (and existing (directory-pathname-p existing))
                               (error "~S denotes a directory, not a file" pathname))
                             (unless existing
-                              (with-open-file (stream pathname
-                                                      :direction :output
-                                                      :if-does-not-exist :create)
-                                (declare (ignore stream)))))
+                            (with-open-file (stream pathname
+                                                    :direction :output
+                                                    :if-does-not-exist :create)
+                                nil)))
                           (cond
                            ((and access-time-p modification-time-p)
                             (set-file-times pathname
