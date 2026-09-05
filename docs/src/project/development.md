@@ -96,7 +96,7 @@ and lives under `t/`, one test file per `src/` file.
 | `src/package.lisp` | The single public package. |
 | `src/conditions.lisp` | `host-kit-error` and its subtypes, and the `%with-host-operation` wrapping macro. |
 | `src/with-macros.lisp` | `define-with-macro`, the macro-defining-macro every `WITH-X` scope macro is generated from. |
-| `src/strings.lisp` | `split-string`, `string-prefix-p`. |
+| `src/strings.lisp` | `split-string`, `string-prefix-p`, `string-suffix-p`, and `join-strings`. |
 | `src/pathnames.lisp` | Pathname coercion, predicates, and parent-directory calculation. |
 | `src/environment.lisp` | Environment variables, command-line arguments, hostname, and `quit`. |
 | `src/process-result.lisp` | The `process-result` data model, exit-code validation, and PATH-based program lookup. |
