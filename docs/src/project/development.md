@@ -107,7 +107,7 @@ and lives under `t/`, one test file per `src/` file.
 | `src/directory-operations.lisp` | Directory listing/traversal, creation, deletion, and renaming. |
 | `src/temporary-resources.lisp` | Temporary directory and file lifecycles. |
 | `src/file-io.lisp` | Whole-file reads, line reads, atomic writes, and directory-tree copying. |
-| `src/file-locking.lisp` | Scoped advisory file locks with timeout handling. |
+| `src/file-locking.lisp` | Scoped advisory locks, retained locks, and other-process lock queries. |
 
 ## Conventions
 

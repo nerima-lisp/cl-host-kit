@@ -447,7 +447,7 @@ locks.
     true, a successful output stream is flushed and `fsync`ed before it closes.
 - **`(with-temporary-file (stream pathname &key directory prefix suffix keep direction element-type external-format attempts synchronize) &body body)`**
   — Lexically scoped macro form of `call-with-temporary-file`.
-- **`(call-with-atomic-output-file thunk target &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede))`**
+- **`(call-with-atomic-output-file thunk target &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`**
   — Call `thunk` with an output stream, then atomically replace `target` only
   after the stream closes successfully. Failures leave the old target intact;
   replacing an existing regular file preserves its access permission bits.
@@ -458,17 +458,23 @@ locks.
   `if-exists` is `:supersede` (the default) or `:error`; `:error` rejects an
   existing target before creating a temporary file, but cannot atomically exclude
   a concurrent target creator.
-- **`(with-atomic-output-file (stream target &key element-type external-format synchronize if-exists) &body body)`**
+  `mode` is NIL or access bits from `#o000` through `#o777`. For a new target,
+  a supplied mode is applied through the temporary stream's descriptor before
+  rename; NIL retains the temporary file's `#o600` mode. An existing target's
+  access bits take precedence. `prefix` selects the temporary basename prefix;
+  it must be a filename fragment without directory separators.
+- **`(with-atomic-output-file (stream target &key element-type external-format synchronize if-exists mode prefix) &body body)`**
   — Lexically scoped macro form of `call-with-atomic-output-file`.
-- **`(write-file-string string pathspec &key (external-format :utf-8) (synchronize nil) (if-exists :supersede))`** —
+- **`(write-file-string string pathspec &key (external-format :utf-8) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** —
   Atomically write `string` and return the absolute target pathname.
-- **`(write-file-lines lines pathspec &key (external-format :utf-8) (line-terminator #\Newline) (synchronize nil) (if-exists :supersede))`** —
+- **`(write-file-lines lines pathspec &key (external-format :utf-8) (line-terminator #\Newline) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** —
   Atomically write a proper list of strings, appending `line-terminator` after
   each line, then return the absolute target pathname. `line-terminator` may
   be a character or string.
-- **`(write-file-octets octets pathspec &key (synchronize nil) (if-exists :supersede))`** — Atomically write an
+- **`(write-file-octets octets pathspec &key (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** — Atomically write an
   `(unsigned-byte 8)` array and return the absolute target pathname.
-- **`(copy-file source target &key (if-exists :error) (synchronize nil) (follow-symlinks t))`** — Stream a
+  The whole-file writers forward `mode` and `prefix` to `call-with-atomic-output-file`.
+- **`(copy-file source target &key (if-exists :error) (synchronize nil) (follow-symlinks t) prefix)`** — Stream a
   binary copy of `source` into an atomic target, then return the absolute target
   pathname. `if-exists` is `:error` (the default) or `:supersede`; only the
   latter replaces an existing target. The `:error` check cannot atomically
@@ -482,6 +488,9 @@ locks.
   times; an existing regular target retains its access permission bits when
   superseded. With `follow-symlinks` false, a symbolic source is recreated as a
   symbolic link with the same raw target text, including broken or relative links.
+  Omitting `prefix` uses `.host-kit-` for a regular file and `.host-kit-copy-`
+  for a symbolic link's staging directory. Supplying `prefix` sets the staging
+  basename prefix for either kind of copy.
 - **`(copy-directory-tree source target &key (synchronize nil))`** — Copy a real
   source directory, including empty directories and symbolic links without
   following them, into an initially absent target directory. Regular files are
@@ -525,6 +534,36 @@ locks.
 - **`(with-file-lock (stream pathspec &key (wait t) timeout (mode :exclusive)) &body body)`** — Lexically
   scoped macro form for `call-with-file-lock`; binds the opened, locked stream in `body` and preserves all
   body values.
+- **`file-lock`** — An exclusive whole-file advisory lock retained until explicit
+  release or process exit. POSIX record locks belong to the process: do not open
+  or close another stream for the same inode while holding the lock. The scoped
+  APIs and retained locks share the process ownership registry.
+- **`(try-acquire-file-lock pathspec &key (mode #o600))`** — Return a `file-lock`
+  immediately, or NIL when another process holds a conflicting lock. Create an
+  absent file with `mode` access bits, subject to umask; preserve existing file
+  permissions. `mode` accepts integers from `#o000` through `#o777`.
+  A lock already registered in this process signals
+  `host-operation-failed` without opening another descriptor. Other operational
+  failures also signal `host-operation-failed`.
+- **`(file-lock-stream lock)`** — Return the owned UTF-8 character stream,
+  initially positioned at byte zero, for reading or writing lock metadata.
+  Opening the lock preserves its contents. Replacing metadata requires
+  positioning the stream and truncating any old trailing content. Flush metadata
+  before another process reads it. Do not close the stream directly or use it
+  after release.
+- **`(release-file-lock lock)`** — Flush metadata while locked, then release the
+  lock and close its stream, returning T once and NIL on subsequent calls. Any
+  thread may release it. On I/O failure, cleanup still attempts to unlock and
+  close the stream and retires the reservation; the first error is reported as
+  `host-operation-failed`.
+- **`(file-lock-held-by-other-process-p pathspec)`** — Query a conflicting
+  other-process lock without acquiring or retaining one. Return NIL for an
+  absent path. A locally registered descriptor is reused for the query, which
+  ignores this process's locks. The query checks byte zero through EOF, so it
+  can detect a foreign shared lock or a foreign lock outside a local scoped
+  lock's range. Querying or rejecting a local acquisition leaves the
+  registered lock intact. The result may become
+  stale immediately; use `try-acquire-file-lock` to acquire a lock.
 
 ## Strings
 

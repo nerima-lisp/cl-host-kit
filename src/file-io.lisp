@@ -14,11 +14,12 @@
       (logand #o777
               (sb-posix:stat-mode (sb-posix:stat (namestring pathname)))))))
 
-(defun %apply-existing-file-mode (source target)
-  "Copy SOURCE's existing access permission bits to TARGET before an atomic rename."
-  (let ((mode (%existing-file-mode source)))
-    (when mode
-      (sb-posix:chmod (namestring target) mode))))
+(defun %apply-existing-file-mode (source stream mode)
+  "Apply existing permissions, or a new-file MODE, through the open STREAM."
+  (let ((effective-mode (or (%existing-file-mode source) mode)))
+    (when effective-mode
+      (finish-output stream)
+      (sb-posix:fchmod (sb-sys:fd-stream-fd stream) effective-mode))))
 
 (defun %synchronize-pathname (pathname)
   "Synchronously persist PATHNAME's file data and metadata."
@@ -35,9 +36,7 @@
     "Publish TEMPORARY-PATHNAME as TARGET after applying requested durability."
     ;; RENAME replaces the inode, so retain TARGET's access mode rather than
     ;; silently changing it to MKSTEMP's 0600 mode.
-    (%apply-existing-file-mode target temporary-pathname)
     (when synchronize
-      ;; CHMOD follows the stream fsync, so persist its metadata too.
       (%synchronize-pathname temporary-pathname))
     (%rename-path-overwriting-target temporary-pathname target)
     (when synchronize
@@ -46,7 +45,8 @@
   (defun call-with-atomic-output-file (thunk target &key (element-type 'character)
                                                          (external-format :utf-8)
                                                          (synchronize nil)
-                                                         (if-exists :supersede))
+                                                         (if-exists :supersede)
+                                                         mode (prefix ".host-kit-"))
     "Call THUNK with a stream whose completed contents atomically replace TARGET.
 Failures before rename leave the old target untouched and remove the temporary
 file.  When SYNCHRONIZE is true, persist replacement data and metadata before
@@ -54,8 +54,13 @@ rename, then persist the containing directory after rename.  A failure during
 the final directory synchronization is reported after replacement.  IF-EXISTS is
 :SUPERSEDE (the default) or :ERROR.  :ERROR rejects an existing target before
 creating a temporary file, but cannot guarantee no replacement against a
-concurrent creator."
+concurrent creator. MODE, when non-NIL, sets access bits for a new target;
+existing target permissions take precedence. PREFIX names the same-directory
+temporary file and defaults to .host-kit-."
     (check-type thunk function)
+    (check-type mode (or null (integer 0 #o777)))
+    (check-type prefix string)
+    (%validate-temporary-name-fragment prefix 'prefix)
     (check-type synchronize boolean)
     (check-type if-exists (member :error :supersede))
     (let* ((target (ensure-absolute-pathname target))
@@ -69,9 +74,10 @@ concurrent creator."
                  (call-with-temporary-file
                   (lambda (stream pathname)
                     (setf temporary-pathname pathname)
-                    (funcall thunk stream))
+                    (multiple-value-prog1 (funcall thunk stream)
+                      (%apply-existing-file-mode target stream mode)))
                   :directory directory
-                  :prefix ".host-kit-"
+                  :prefix prefix
                   :suffix ".tmp"
                   :keep t
                   :direction :output
@@ -202,7 +208,8 @@ number of octets in each chunk.  The function returns NIL."
 
 (defun write-file-string (string pathspec &key (external-format :utf-8)
                                                (synchronize nil)
-                                               (if-exists :supersede))
+                                               (if-exists :supersede)
+                                               mode (prefix ".host-kit-"))
   "Atomically write STRING to PATHSPEC and return its absolute pathname.
 
 IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
@@ -212,13 +219,15 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
                                     pathname
                                     :external-format external-format
                                     :synchronize synchronize
-                                    :if-exists if-exists)
+                                    :if-exists if-exists
+                                    :mode mode :prefix prefix)
     pathname))
 
 (defun write-file-lines (lines pathspec &key (external-format :utf-8)
                                                 (line-terminator #\Newline)
                                                 (synchronize nil)
-                                                (if-exists :supersede))
+                                                (if-exists :supersede)
+                                               mode (prefix ".host-kit-"))
   "Atomically write LINES to PATHSPEC and return its absolute pathname.
 LINES must be a proper list of strings. LINE-TERMINATOR may be a character or
 a string and is appended after every line, including the last one. IF-EXISTS is
@@ -238,11 +247,13 @@ passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
                                   pathname
                                   :external-format external-format
                                   :synchronize synchronize
-                                  :if-exists if-exists)
+                                  :if-exists if-exists
+                                    :mode mode :prefix prefix)
     pathname))
 
 (defun write-file-octets (octets pathspec &key (synchronize nil)
-                                           (if-exists :supersede))
+                                           (if-exists :supersede)
+                                               mode (prefix ".host-kit-"))
   "Atomically write OCTETS to PATHSPEC and return its absolute pathname.
 
 IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
@@ -252,7 +263,8 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
                                     pathname
                                     :element-type '(unsigned-byte 8)
                                     :synchronize synchronize
-                                    :if-exists if-exists)
+                                    :if-exists if-exists
+                                    :mode mode :prefix prefix)
     pathname))
 
 (defun %copy-octet-stream (input output)
@@ -261,7 +273,7 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
           while (plusp end)
           do (write-sequence buffer output :end end))))
 
-(defun %copy-symbolic-link-atomically (source target synchronize)
+(defun %copy-symbolic-link-atomically (source target synchronize prefix)
   "Recreate SOURCE's link entry at TARGET through a same-parent staging path."
   (call-with-temporary-directory
    (lambda (staging-directory)
@@ -271,10 +283,11 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
        (when synchronize
          (%synchronize-pathname (pathname-directory-pathname target)))))
    :directory (pathname-directory-pathname target)
-   :prefix ".host-kit-copy-"))
+   :prefix prefix))
 
 (defun %copy-regular-file-atomically
-    (source target source-metadata target-existed-p synchronize)
+    (source target source-metadata target-existed-p synchronize
+     &optional (prefix ".host-kit-"))
   (with-open-file (input source :direction :input
                                :element-type '(unsigned-byte 8))
     (let ((opened-metadata
@@ -293,7 +306,7 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
            (%apply-copied-metadata-to-stream opened-metadata output)))
        target
        :element-type '(unsigned-byte 8)
-       :synchronize synchronize))))
+       :synchronize synchronize :prefix prefix))))
 
 (progn
   (defun %validate-copy-file-source (source metadata follow-symlinks)
@@ -307,14 +320,16 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
     (when (and follow-symlinks target-existed-p (same-file-p source target))
       (error "SOURCE and TARGET denote the same file: ~S and ~S" source target)))
   (defun %copy-file-entry
-    (source target metadata target-existed-p synchronize follow-symlinks)
+    (source target metadata target-existed-p synchronize follow-symlinks prefix prefix-p)
   (if (and (not follow-symlinks)
            (eq (file-metadata-kind metadata) :symbolic-link))
-      (%copy-symbolic-link-atomically source target synchronize)
+      (%copy-symbolic-link-atomically source target synchronize
+                                      (if prefix-p prefix ".host-kit-copy-"))
       (%copy-regular-file-atomically
-       source target metadata target-existed-p synchronize)))
+       source target metadata target-existed-p synchronize prefix)))
   (defun %copy-file-with-metadata
-      (source target metadata if-exists synchronize follow-symlinks)
+      (source target metadata if-exists synchronize follow-symlinks
+       &optional (prefix ".host-kit-") prefix-p)
     (let ((target-existed-p (path-exists-p target)))
       (when (and (eq if-exists :error) target-existed-p)
         (error "Target directory entry already exists: ~S" target))
@@ -322,11 +337,11 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
       (%validate-copy-file-target
        source target target-existed-p follow-symlinks)
       (%copy-file-entry
-       source target metadata target-existed-p synchronize follow-symlinks)
+       source target metadata target-existed-p synchronize follow-symlinks prefix prefix-p)
       target))
 
   (defun copy-file (source target &key (if-exists :error) (synchronize nil)
-                                        (follow-symlinks t))
+                                        (follow-symlinks t) (prefix ".host-kit-" prefix-p))
     "Copy SOURCE to TARGET atomically and return TARGET.
 IF-EXISTS is :ERROR (the default) or :SUPERSEDE. :ERROR rejects an existing
 target, but cannot provide an atomic no-replace guarantee against a concurrent
@@ -337,6 +352,8 @@ with its original link text. SOURCE and an existing TARGET must not denote the
 same file when FOLLOW-SYMLINKS is true."
     (check-type if-exists (member :error :supersede))
     (check-type synchronize boolean)
+    (check-type prefix string)
+    (%validate-temporary-name-fragment prefix 'prefix)
     (check-type follow-symlinks boolean)
     (let ((source (ensure-absolute-pathname source))
           (target (ensure-absolute-pathname target)))
@@ -344,7 +361,7 @@ same file when FOLLOW-SYMLINKS is true."
         (%copy-file-with-metadata
          source target
          (file-metadata source :follow-symlinks follow-symlinks)
-         if-exists synchronize follow-symlinks)))))
+         if-exists synchronize follow-symlinks prefix prefix-p)))))
 
 (progn
   (defun %descriptor-pathname (descriptor)
@@ -381,7 +398,7 @@ same file when FOLLOW-SYMLINKS is true."
   (defun %copy-directory-tree-regular-file
     (source target metadata synchronize)
   (%validate-copy-file-source source metadata nil)
-  (%copy-file-entry source target metadata nil synchronize nil))
+  (%copy-file-entry source target metadata nil synchronize nil ".host-kit-" nil))
 
   (defun %copy-directory-tree-symbolic-link (source target)
     ;; Preserve the link text so relative and dangling links retain their meaning.
@@ -506,3 +523,4 @@ SYNCHRONIZE is passed to the selected copy operation."
         (otherwise
          (error "COPY-PATH does not support ~S at ~S"
                 (file-metadata-kind metadata) source))))))
+

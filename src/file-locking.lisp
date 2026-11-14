@@ -262,3 +262,109 @@ CALL-WITH-ADVISORY-FILE-LOCK with a supplied stream for nested locking."
 
   (define-with-macro with-file-lock (stream) call-with-file-lock))
 
+
+
+(defstruct (file-lock (:constructor %make-file-lock (stream reservation)))
+  "An explicitly released advisory lock. Do not close its stream directly."
+  (stream nil :read-only t)
+  (reservation nil :read-only t)
+  (released-p nil))
+
+(defun %held-file-lock-for-path (pathname)
+  (handler-case
+      (let ((stat (sb-posix:stat (namestring pathname))))
+        (%find-held-advisory-file-lock
+         (cons (sb-posix:stat-dev stat) (sb-posix:stat-ino stat))))
+    (sb-posix:syscall-error (condition)
+      (unless (= (sb-posix:syscall-errno condition) sb-posix:enoent)
+        (error condition)))))
+
+(defun try-acquire-file-lock (pathspec &key (mode #o600))
+  "Acquire an exclusive whole-file lock without waiting, or return NIL on conflict.
+MODE controls creation permissions, subject to umask; existing files are unchanged.
+A locally held inode signals HOST-OPERATION-FAILED without opening another fd.
+Release the returned FILE-LOCK explicitly. Process exit also releases the lock.
+POSIX locks are process-owned: do not open or close other streams for this inode."
+  (check-type mode (integer 0 #o777))
+  (let ((pathname (ensure-absolute-pathname pathspec)))
+    (%with-host-operation (:try-acquire-file-lock pathname)
+      (sb-thread:with-mutex (*advisory-file-locks-lock*)
+        (when (%held-file-lock-for-path pathname)
+          (error "An advisory lock for this file is already held in this process."))
+        (%open-retained-file-lock pathname mode)))))
+
+(defun %open-retained-file-lock (pathname mode)
+  (let ((fd nil) (stream nil) (retained nil))
+    (unwind-protect
+         (progn
+           (setf fd (sb-posix:open (namestring pathname)
+                                  (logior sb-posix:o-rdwr sb-posix:o-creat) mode)
+                 stream (sb-sys:make-fd-stream fd :input t :output t
+                                              :element-type 'character
+                                              :external-format :utf-8
+                                              :auto-close t))
+           (handler-case
+               (%acquire-advisory-file-lock fd nil nil)
+             (sb-posix:syscall-error (condition)
+               (if (%conflicting-file-lock-p condition)
+                   (return-from %open-retained-file-lock nil)
+                   (error condition))))
+           (let* ((reservation (%make-held-advisory-file-lock
+                                :identity (%advisory-file-lock-identity fd)
+                                :fd fd :lock-start 0 :mode :exclusive))
+                  (lock (%make-file-lock stream reservation)))
+             (setf (%held-advisory-file-lock-owners reservation) (list :retained))
+             (push reservation *held-advisory-file-locks*)
+             (setf retained t)
+             lock))
+      (unless retained
+        (if stream (close stream) (when fd (sb-posix:close fd)))))))
+
+(defun release-file-lock (lock)
+  "Flush metadata while locked, then release LOCK and close its owned stream.
+Return NIL if already released. Cleanup retires the reservation even on I/O
+failure, and the first I/O error is propagated."
+  (check-type lock file-lock)
+  (%with-host-operation (:release-file-lock lock)
+    (sb-thread:with-mutex (*advisory-file-locks-lock*)
+      (unless (file-lock-released-p lock)
+        (let ((reservation (file-lock-reservation lock))
+              (failure nil))
+          (unwind-protect
+               (handler-case (finish-output (file-lock-stream lock))
+                 (error (condition) (setf failure condition)))
+            (unwind-protect
+                 (handler-case
+                     (%release-advisory-file-lock
+                      (%held-advisory-file-lock-fd reservation) 0)
+                   (error (condition) (unless failure (setf failure condition))))
+              (unwind-protect
+                   (handler-case (close (file-lock-stream lock) :abort t)
+                     (error (condition) (unless failure (setf failure condition))))
+                (setf *held-advisory-file-locks*
+                      (delete reservation *held-advisory-file-locks*)
+                      (file-lock-released-p lock) t)
+                (when failure (error failure)))))
+          t)))))
+
+(defun file-lock-held-by-other-process-p (pathspec)
+  "Report a conflicting other-process lock without acquiring or retaining one.
+An absent path returns NIL. Existing local descriptors are reused so querying
+does not release this process's POSIX locks. This observation can become stale
+immediately; TRY-ACQUIRE-FILE-LOCK is the acquisition authority."
+  (let ((pathname (ensure-absolute-pathname pathspec)))
+    (%with-host-operation (:file-lock-held-by-other-process-p pathname)
+      (sb-thread:with-mutex (*advisory-file-locks-lock*)
+        (flet ((locked-p (fd)
+                 (let ((request (%make-advisory-file-lock :exclusive 0)))
+                   (sb-posix:fcntl fd sb-posix:f-getlk request)
+                   (/= (sb-posix:flock-type request) sb-posix:f-unlck))))
+          (let ((held (%held-file-lock-for-path pathname)))
+            ;; Closing a second descriptor would release our POSIX record locks.
+            (if held
+                (locked-p (%held-advisory-file-lock-fd held))
+                (with-open-file (stream pathname :direction :input :if-does-not-exist nil)
+                  (when stream
+                    (locked-p (sb-sys:fd-stream-fd stream)))))))))))
+
+
