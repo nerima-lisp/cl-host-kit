@@ -284,8 +284,7 @@ IF-EXISTS is passed to CALL-WITH-ATOMIC-OUTPUT-FILE."
    :prefix prefix))
 
 (defun %copy-regular-file-atomically
-    (source target source-metadata target-existed-p synchronize
-     &optional (prefix ".host-kit-"))
+    (source target source-metadata target-existed-p synchronize prefix)
   (with-open-file (input source :direction :input
                                :element-type '(unsigned-byte 8))
     (let ((opened-metadata
