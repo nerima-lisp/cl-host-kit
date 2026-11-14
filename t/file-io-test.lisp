@@ -922,3 +922,17 @@
         (expect (directory-files scratch) :to-equal (list target))))))
 
 
+(describe "atomic synchronization with restrictive creation modes"
+  (it-each ((#o000) (#o200))
+      "publishes synchronized new files with mode ~O through their existing descriptor"
+      (mode)
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "restricted" scratch)))
+        (expect (write-file-string "contents" target :mode mode :synchronize t)
+                :to-equal (ensure-absolute-pathname target))
+        (expect (file-metadata-mode (file-metadata target)) :to-equal mode)
+        (set-file-mode target #o600)
+        (expect (read-file-string target) :to-equal "contents")))))
+
+
+

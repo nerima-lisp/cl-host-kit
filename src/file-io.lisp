@@ -34,10 +34,8 @@
 (progn
   (defun %publish-atomic-output-file (target temporary-pathname directory synchronize)
     "Publish TEMPORARY-PATHNAME as TARGET after applying requested durability."
-    ;; RENAME replaces the inode, so retain TARGET's access mode rather than
-    ;; silently changing it to MKSTEMP's 0600 mode.
-    (when synchronize
-      (%synchronize-pathname temporary-pathname))
+    ;; The temporary stream fsync follows descriptor-based permission changes.
+    ;; Reopening by path would reject valid write-only or inaccessible modes.
     (%rename-path-overwriting-target temporary-pathname target)
     (when synchronize
       (%synchronize-pathname directory)))
