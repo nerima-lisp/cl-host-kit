@@ -307,3 +307,215 @@
              (error "expected test failure"))
            target))
         (expect (%child-lock-exit-code target) :to-equal 0)))))
+
+
+(describe "retained file locks"
+  (it "retains a lock until explicit release and safely queries its own lock"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "lease.lock" scratch))
+             (lock (try-acquire-file-lock target)))
+        (unwind-protect
+             (progn
+               (expect (typep lock 'file-lock) :to-be t)
+               (expect (logand #o777 (file-metadata-mode (file-metadata target))) :to-equal #o600)
+               (write-line "metadata" (file-lock-stream lock))
+               (finish-output (file-lock-stream lock))
+               (expect (%child-lock-exit-code target) :to-equal 1)
+               (expect (file-lock-held-by-other-process-p target) :to-be nil)
+               (signals host-operation-failed (try-acquire-file-lock target))
+               (expect (%child-lock-exit-code target) :to-equal 1)
+               (expect (release-file-lock lock) :to-be t)
+               (expect (release-file-lock lock) :to-be nil)
+               (expect (open-stream-p (file-lock-stream lock)) :to-be nil)
+               (expect (%child-lock-exit-code target) :to-equal 0))
+          (release-file-lock lock)))))
+  (it "observes a real other process and recovers after its exit"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "external.lock" scratch))
+             (ready (merge-pathnames "ready" scratch))
+             (holder nil))
+        (write-file-string "" target)
+        (unwind-protect
+             (progn
+               (setf holder (%start-lock-holder target ready))
+               (%wait-for-lock-holder ready)
+               (expect (file-lock-held-by-other-process-p target) :to-be t)
+               (expect (try-acquire-file-lock target) :to-be nil)
+               (sb-ext:process-kill holder 15)
+               (sb-ext:process-wait holder)
+               (setf holder nil)
+               (expect (file-lock-held-by-other-process-p target) :to-be nil)
+               (let ((lock (try-acquire-file-lock target)))
+                 (expect (typep lock 'file-lock) :to-be t)
+                 (release-file-lock lock)))
+          (when holder
+            (sb-ext:process-kill holder 15)
+            (sb-ext:process-wait holder))))))
+  (it "does not create an absent path when querying and wraps OS failures"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "absent.lock" scratch)))
+        (expect (file-lock-held-by-other-process-p target) :to-be nil)
+        (expect (path-exists-p target) :to-be nil)
+        (signals host-operation-failed (try-acquire-file-lock scratch))
+        (signals type-error (try-acquire-file-lock target :mode -1))
+        (signals type-error (release-file-lock nil))))))
+
+
+(describe "retained file lock lifecycle"
+  (it "releases a retained lock when its owner process exits without cleanup"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "exited.lock" scratch))
+             (root (asdf:system-source-directory "cl-host-kit"))
+             (form (format nil
+                           "(progn (asdf:initialize-source-registry '(:source-registry (:directory ~S) :ignore-inherited-configuration)) (asdf:load-system \"cl-host-kit\") (unless (uiop:symbol-call :host-kit :try-acquire-file-lock ~S) (error \"No lock\")) (sb-ext:exit :code 0))"
+                           (namestring root) (namestring target))))
+        (let ((result (run-program (namestring sb-ext:*runtime-pathname*)
+                                   (list "--noinform" "--non-interactive"
+                                         "--eval" "(require :asdf)" "--eval" form)
+                                   :timeout 10)))
+          (expect (process-result-exit-code result) :to-equal 0))
+        (expect (file-lock-held-by-other-process-p target) :to-be nil)
+        (let ((lock (try-acquire-file-lock target)))
+          (expect (typep lock 'file-lock) :to-be t)
+          (release-file-lock lock)))))
+  (it "permits another thread to release the owned stream"
+    (with-scratch-directory (scratch)
+      (let ((lock (try-acquire-file-lock (merge-pathnames "thread.lock" scratch))))
+        (unwind-protect
+             (expect (sb-thread:join-thread
+                      (sb-thread:make-thread (lambda () (release-file-lock lock))))
+                     :to-be t)
+          (release-file-lock lock))))))
+
+
+(describe "retained file lock release ordering"
+  (it "flushes metadata before releasing the OS lock"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "metadata.lock" scratch))
+             (lock (try-acquire-file-lock target))
+             (unlock (symbol-function 'host-kit::%release-advisory-file-lock))
+             (observed nil))
+        (unwind-protect
+             (progn
+               (write-string "unflushed metadata" (file-lock-stream lock))
+               (setf (symbol-function 'host-kit::%release-advisory-file-lock)
+                     (lambda (fd start)
+                       ;; Read through a child: opening another local fd drops POSIX locks.
+                       (let ((result (run-program (namestring sb-ext:*runtime-pathname*)
+                                                  (list "--noinform" "--non-interactive"
+                                                        "--eval" "(require :asdf)"
+                                                        "--eval" (format nil
+                                                                         "(write-string (uiop:read-file-string ~S))"
+                                                                         (namestring target))))))
+                         (setf observed (process-result-stdout result)))
+                       (funcall unlock fd start)))
+               (release-file-lock lock)
+               (expect observed :to-equal "unflushed metadata"))
+          (setf (symbol-function 'host-kit::%release-advisory-file-lock) unlock)
+          (release-file-lock lock)))))
+  (it "retires the registry after a close failure and propagates that failure"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "close-error.lock" scratch))
+             (lock (try-acquire-file-lock target))
+             (stream (file-lock-stream lock))
+             (original (symbol-function 'close))
+             (injected nil))
+        (unwind-protect
+             (progn
+               (sb-ext:without-package-locks
+                 (setf (symbol-function 'close)
+                       (lambda (candidate &key abort)
+                         (prog1 (funcall original candidate :abort abort)
+                           (when (and (eq candidate stream) (not injected))
+                             (setf injected t)
+                             (error "injected close failure"))))))
+               (signals host-operation-failed (release-file-lock lock))
+               (expect injected :to-be t)
+               (expect (release-file-lock lock) :to-be nil)
+               (expect (open-stream-p stream) :to-be nil)
+               (let ((next (try-acquire-file-lock target)))
+                 (expect (typep next 'file-lock) :to-be t)
+                 (release-file-lock next)))
+          (sb-ext:without-package-locks (setf (symbol-function 'close) original))
+          (release-file-lock lock)))))
+  (it "finds an external shared owner while a local shared lock is held"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "shared.lock" scratch))
+             (ready (merge-pathnames "shared-ready" scratch))
+             (holder nil)
+             (form (format nil
+                           "(with-open-file (stream ~S :direction :io :if-exists :overwrite) (sb-posix:fcntl (sb-sys:fd-stream-fd stream) sb-posix:f-setlk (make-instance 'sb-posix:flock :type sb-posix:f-rdlck :whence sb-posix:seek-set :start 0 :len 0)) (with-open-file (output ~S :direction :output :if-exists :supersede) (write-line \"ready\" output)) (sleep 30))"
+                           (namestring target) (namestring ready))))
+        (write-file-string "" target)
+        (unwind-protect
+             (with-open-file (stream target :direction :io :if-exists :overwrite)
+               (with-advisory-file-lock (stream :mode :shared)
+                 (setf holder (sb-ext:run-program
+                               (namestring sb-ext:*runtime-pathname*)
+                               (list "--noinform" "--non-interactive"
+                                     "--eval" "(require :sb-posix)" "--eval" form)
+                               :wait nil :output nil :error nil))
+                 (%wait-for-lock-holder ready)
+                 (expect (file-lock-held-by-other-process-p target) :to-be t)))
+          (when holder
+            (sb-ext:process-kill holder 15)
+            (sb-ext:process-wait holder)))))))
+
+
+(describe "retained file lock operational failures"
+  (it "preserves a flush failure while unlocking and closing after a second failure"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "flush-error.lock" scratch))
+             (lock (try-acquire-file-lock target))
+             (stream (file-lock-stream lock))
+             (flush (symbol-function 'finish-output))
+             (unlock (symbol-function 'host-kit::%release-advisory-file-lock))
+             (first (make-condition 'simple-error :format-control "flush failure")))
+        (unwind-protect
+             (progn
+               (sb-ext:without-package-locks
+                 (setf (symbol-function 'finish-output)
+                       (lambda (&optional candidate)
+                         (if (eq candidate stream)
+                             (error first)
+                             (funcall flush candidate)))))
+               (setf (symbol-function 'host-kit::%release-advisory-file-lock)
+                     (lambda (fd start)
+                       (funcall unlock fd start)
+                       (error "unlock failure")))
+               (expect (handler-case (release-file-lock lock)
+                         (host-operation-failed (condition)
+                           (host-operation-failed-reason condition)))
+                       :to-be first)
+               (expect (open-stream-p stream) :to-be nil)
+               (expect (release-file-lock lock) :to-be nil)
+               (expect (%child-lock-exit-code target) :to-equal 0))
+          (sb-ext:without-package-locks (setf (symbol-function 'finish-output) flush))
+          (setf (symbol-function 'host-kit::%release-advisory-file-lock) unlock)
+          (release-file-lock lock)))))
+  (it "reports non-conflict acquisition failures and permits a subsequent acquisition"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "acquire-error.lock" scratch))
+             (original (symbol-function 'host-kit::%acquire-advisory-file-lock)))
+        (unwind-protect
+             (progn
+               (setf (symbol-function 'host-kit::%acquire-advisory-file-lock)
+                     (lambda (&rest arguments)
+                       (declare (ignore arguments))
+                       (sb-posix:fcntl -1 sb-posix:f-getfd)))
+               (signals host-operation-failed (try-acquire-file-lock target)))
+          (setf (symbol-function 'host-kit::%acquire-advisory-file-lock) original))
+        (let ((lock (try-acquire-file-lock target)))
+          (expect (typep lock 'file-lock) :to-be t)
+          (release-file-lock lock)))))
+  (it "reports a non-directory path component instead of an unlocked result"
+    (with-scratch-directory (scratch)
+      (let ((file (merge-pathnames "regular" scratch))
+            (target (merge-pathnames "regular/child.lock" scratch)))
+        (write-file-string "contents" file)
+        (signals host-operation-failed (file-lock-held-by-other-process-p target))
+        (signals host-operation-failed (try-acquire-file-lock target))))))
+
+
+
+

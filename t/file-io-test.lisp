@@ -855,3 +855,70 @@
         (expect (subdirectories scratch)
                 :to-equal
                 (list source))))))
+
+
+(describe "atomic file creation options"
+  (it "applies a new target mode and custom prefix before publication"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "new.txt" scratch)))
+        (call-with-atomic-output-file
+         (lambda (stream)
+           (expect (string-prefix-p "#new.txt#." (file-namestring (pathname stream))) :to-be t)
+           (write-string "private" stream))
+         target :mode #o640 :prefix "#new.txt#.")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640)
+        (write-file-string "replacement" target :mode #o600 :prefix "#new.txt#.")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640)
+        (expect (directory-files scratch) :to-equal (list target)))))
+  (it "forwards creation options through line and octet writers"
+    (with-scratch-directory (scratch)
+      (let ((lines (merge-pathnames "lines" scratch))
+            (octets (merge-pathnames "octets" scratch)))
+        (write-file-lines '("line") lines :mode #o640 :prefix "lines-")
+        (write-file-octets (make-array 1 :element-type '(unsigned-byte 8) :initial-element 42)
+                           octets :mode #o640 :prefix "octets-")
+        (expect (file-metadata-mode (file-metadata lines)) :to-equal #o640)
+        (expect (file-metadata-mode (file-metadata octets)) :to-equal #o640))))
+  (it "accepts a copy staging prefix while preserving source permissions"
+    (with-scratch-directory (scratch)
+      (let ((source (merge-pathnames "source" scratch))
+            (target (merge-pathnames "copy" scratch)))
+        (write-file-string "contents" source)
+        (set-file-mode source #o640)
+        (copy-file source target :prefix "#copy#.")
+        (expect (read-file-string target) :to-equal "contents")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "rejects invalid creation options without replacing a target"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "unchanged" scratch)))
+        (write-file-string "old" target)
+        (signals type-error (write-file-string "new" target :mode -1))
+        (signals error (write-file-string "new" target :prefix "../escape"))
+        (expect (read-file-string target) :to-equal "old")))))
+
+
+(describe "atomic publication permissions"
+  (it "sets mode before rename and removes custom staging files on failure"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "private" scratch))
+             (original (symbol-function 'host-kit::%rename-path-overwriting-target))
+             (observed nil))
+        (unwind-protect
+             (progn
+               (setf (symbol-function 'host-kit::%rename-path-overwriting-target)
+                     (lambda (source destination)
+                       (expect (file-metadata-mode (file-metadata source)) :to-equal #o640)
+                       (expect (path-exists-p destination) :to-be nil)
+                       (setf observed t)
+                       (funcall original source destination)))
+               (write-file-string "private" target :mode #o640 :prefix "private-"))
+          (setf (symbol-function 'host-kit::%rename-path-overwriting-target) original))
+        (expect observed :to-be t)
+        (signals host-operation-failed
+          (call-with-atomic-output-file
+           (lambda (stream) (write-string "unfinished" stream) (error "abort"))
+           target :mode #o600 :prefix "private-"))
+        (expect (read-file-string target) :to-equal "private")
+        (expect (directory-files scratch) :to-equal (list target))))))
+
+
