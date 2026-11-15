@@ -858,9 +858,11 @@
 
 
 (cl-weave:describe-sequential "atomic file creation options"
-  (it "applies the exact requested mode after writing a private staging file"
+  (it-each ((#o077) (#o000))
+      "applies the exact requested mode after writing a private staging file under umask ~O"
+      (mask)
     (cl-weave:expect-assertions 7)
-    (let ((previous-mask (sb-posix:umask #o077)))
+    (let ((previous-mask (sb-posix:umask mask)))
       (unwind-protect
            (with-scratch-directory (scratch)
              (let ((target (merge-pathnames "new.txt" scratch))
@@ -893,7 +895,7 @@
   (it-each ((nil ".host-kit-") ("#copy#." "#copy#."))
       "uses regular copy staging prefix ~S while preserving source permissions"
       (prefix expected-prefix)
-    (cl-weave:expect-assertions 5)
+    (cl-weave:expect-assertions (if prefix 5 6))
     (with-scratch-directory (scratch)
       (let* ((source (merge-pathnames "source" scratch))
              (target (merge-pathnames "copy" scratch))
@@ -911,6 +913,8 @@
               (copy-file source target)))
         (expect staging-name :to-be-truthy)
         (expect (string-prefix-p expected-prefix staging-name) :to-be t)
+        (unless prefix
+          (expect (string-prefix-p ".host-kit-copy-" staging-name) :to-be nil))
         (expect (read-file-string target) :to-equal "contents")
         (expect (file-metadata-mode (file-metadata target)) :to-equal #o640)
         (expect (subdirectories scratch) :to-equal nil))))
