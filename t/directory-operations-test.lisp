@@ -858,3 +858,20 @@
         (expect entries :to-equal (list (list (merge-pathnames (sb-ext:parse-native-namestring "nested*?[\\") scratch) :directory 1) (list file :regular-file 2)))
         (expect (every (lambda (entry) (not (wild-pathname-p (first entry)))) entries) :to-be t)
         (expect (read-file-string file) :to-equal "payload")))))
+
+(describe "native deletion conversion failures"
+  (it-each ((:error) (:ignore))
+      "wraps wildcard pathname conversion with missing policy ~S" (policy)
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "wild*.txt" scratch))
+             (condition (handler-case
+                            (delete-path target :if-does-not-exist policy)
+                          (host-operation-failed (condition) condition))))
+        (expect (typep condition 'host-operation-failed) :to-be t)
+        (expect (host-operation-failed-operation condition) :to-equal :delete-path)
+        (expect (host-operation-failed-target condition) :to-equal target))))
+  (it "still ignores a missing ordinary path without suppressing conversion errors"
+    (with-scratch-directory (scratch)
+      (expect (delete-path (merge-pathnames "missing.txt" scratch)
+                           :if-does-not-exist :ignore)
+              :to-be nil))))

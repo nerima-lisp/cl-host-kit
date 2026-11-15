@@ -383,7 +383,7 @@
       (let ((lock (try-acquire-file-lock (merge-pathnames "thread.lock" scratch))))
         (unwind-protect
              (expect (sb-thread:join-thread
-                      (sb-thread:make-thread (lambda () (release-file-lock lock))))
+                      (sb-thread:make-thread (lambda () (release-file-lock lock))) :timeout 2)
                      :to-be t)
           (release-file-lock lock))))))
 
@@ -589,7 +589,7 @@
                  (%lock-test-wait second-acquired)
                  (let ((before (%child-lock-exit-code target)))
                    (unless protected (sb-thread:signal-semaphore finish-retiring))
-                   (sb-thread:join-thread old-thread)
+                   (sb-thread:join-thread old-thread :timeout 2)
                    (list (not (null protected)) before new-live
                          (%child-lock-exit-code target)
                          (null old-error) (null new-error))))
@@ -598,7 +598,7 @@
             (sb-thread:signal-semaphore finish-retiring)
             (sb-thread:signal-semaphore return-second)
             (dolist (thread (list old-thread new-thread))
-              (when thread (sb-thread:join-thread thread)))))))))
+              (when thread (sb-thread:join-thread thread :timeout 2)))))))))
 
 (cl-weave:describe-sequential "retained and scoped lock interoperability"
   (it "rejects a pathname scope before opening a descriptor for a retained inode"
@@ -635,7 +635,7 @@
                        :to-equal :rejected))
           (when (and worker (sb-thread:thread-alive-p worker))
             (sb-thread:terminate-thread worker)
-            (sb-thread:join-thread worker :default nil))
+            (sb-thread:join-thread worker :default nil :timeout 2))
           (release-file-lock lock)))))
   (it "keeps its owned stream alive after the file-lock reference is discarded"
     (with-scratch-directory (scratch)
@@ -643,7 +643,7 @@
             (reservation nil))
         (multiple-value-bind (weak-lock weak-stream)
             (sb-thread:join-thread
-             (sb-thread:make-thread (lambda () (%retained-lock-weak-references target))))
+             (sb-thread:make-thread (lambda () (%retained-lock-weak-references target))) :timeout 2)
           (unwind-protect
                (progn
                  (sb-ext:gc :full t)
@@ -704,15 +704,15 @@
                      (%lock-test-wait second-ready)
                      (expect (%child-lock-exit-code target) :to-equal 1)
                      (sb-thread:signal-semaphore return-first)
-                     (sb-thread:join-thread old-thread)
+                     (sb-thread:join-thread old-thread :timeout 2)
                      (expect (%child-lock-exit-code target) :to-equal 1)
                      (sb-thread:signal-semaphore return-second)
-                     (sb-thread:join-thread new-thread)
+                     (sb-thread:join-thread new-thread :timeout 2)
                      (expect (%child-lock-exit-code target) :to-equal 0))
                 (sb-thread:signal-semaphore return-first)
                 (sb-thread:signal-semaphore return-second)
                 (dolist (thread (list old-thread new-thread))
-                  (when thread (sb-thread:join-thread thread)))))))))))
+                  (when thread (sb-thread:join-thread thread :timeout 2)))))))))))
 
 
 (defun %retained-lock-weak-references (target)
@@ -755,7 +755,7 @@
              (expect (open-stream-p owned) :to-be t)
              (expect (%child-lock-exit-code target) :to-equal 1)
              (sb-thread:signal-semaphore finish)
-             (sb-thread:join-thread worker)
+             (sb-thread:join-thread worker :timeout 2)
              (expect (open-stream-p owned) :to-be nil)
              (expect (%child-lock-exit-code target) :to-equal 0)
              (expect creator-error :to-be (and creator-abort-p creator-condition))
@@ -764,7 +764,7 @@
              (expect (read-line borrowed) :to-equal
                      (if creator-abort-p "original" "changed!")))
         (sb-thread:signal-semaphore finish)
-        (when worker (sb-thread:join-thread worker))))))
+        (when worker (sb-thread:join-thread worker :timeout 2))))))
 
 (cl-weave:describe-sequential "pathname scoped lock compatibility"
   (it "waits for another thread's pathname scope before opening and acquiring"

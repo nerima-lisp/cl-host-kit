@@ -116,10 +116,10 @@ TARGET may be a string or pathname. A string is stored without normalization,
 so a relative target remains relative to the new link's containing directory.
 Existing destination entries are never replaced."
   (check-type target (or string pathname))
-  (let ((link (ensure-absolute-pathname link-pathspec))
-        (target-namestring (%native-file-namestring target)))
+  (let ((link (ensure-absolute-pathname link-pathspec)))
     (%with-host-operation (:create-symbolic-link link)
-      (sb-posix:symlink (%native-file-namestring target-namestring) (%native-file-namestring link)))
+      (let ((target-namestring (%native-file-namestring target)))
+        (sb-posix:symlink (%native-file-namestring target-namestring) (%native-file-namestring link))))
     link))
 
 (defun create-hard-link (source link-pathspec)

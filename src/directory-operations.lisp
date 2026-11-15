@@ -215,28 +215,28 @@ When RECURSIVE is true, delete a real directory tree; links are always removed
 as links. IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE."
     (check-type recursive boolean)
     (check-type if-does-not-exist (member :error :ignore))
-    (let* ((pathname (ensure-pathname pathspec))
-           (entry-namestring (%final-entry-namestring pathname)))
+    (let ((pathname (ensure-pathname pathspec)))
       (%with-host-operation (:delete-path pathname)
-        (handler-case
-            (let ((mode (sb-posix:stat-mode
-                         (sb-posix:lstat (%native-file-namestring entry-namestring)))))
-              (if (sb-posix:s-isdir mode)
-                  (if recursive
-                      (progn
-                        (delete-directory-tree pathname
-                                               :if-does-not-exist :error)
-                        t)
-                      (progn
-                        (sb-posix:rmdir (%native-file-namestring entry-namestring))
-                        t))
-                  (progn
-                    (sb-posix:unlink (%native-file-namestring entry-namestring))
-                    t)))
-          (sb-posix:syscall-error (condition)
-            (unless (and (eq if-does-not-exist :ignore)
-                     (member (sb-posix:syscall-errno condition)
-                             (list sb-posix:enoent sb-posix:enotdir))) (error condition))))))))
+        (let ((entry-namestring (%final-entry-namestring pathname)))
+          (handler-case
+              (let ((mode (sb-posix:stat-mode
+                           (sb-posix:lstat (%native-file-namestring entry-namestring)))))
+                (if (sb-posix:s-isdir mode)
+                    (if recursive
+                        (progn
+                          (delete-directory-tree pathname
+                                                 :if-does-not-exist :error)
+                          t)
+                        (progn
+                          (sb-posix:rmdir (%native-file-namestring entry-namestring))
+                          t))
+                    (progn
+                      (sb-posix:unlink (%native-file-namestring entry-namestring))
+                      t)))
+            (sb-posix:syscall-error (condition)
+              (unless (and (eq if-does-not-exist :ignore)
+                       (member (sb-posix:syscall-errno condition)
+                               (list sb-posix:enoent sb-posix:enotdir))) (error condition)))))))))
 
 (defun delete-directory-tree (pathspec &key validate (if-does-not-exist :error))
   "Recursively delete directory PATHSPEC.

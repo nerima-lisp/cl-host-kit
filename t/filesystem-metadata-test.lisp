@@ -508,3 +508,14 @@ be normalized to satisfy"
         (copy-file link copy :follow-symlinks nil)
         (expect (read-symbolic-link copy) :to-equal native-target)
         (expect (read-file-string copy) :to-equal "payload")))))
+
+(describe "native symbolic link conversion failures"
+  (it "wraps a wildcard target pathname conversion without creating the link"
+    (with-scratch-directory (scratch)
+      (let* ((link (merge-pathnames "link" scratch))
+             (condition (handler-case
+                            (create-symbolic-link (pathname "target*.txt") link)
+                          (host-operation-failed (condition) condition))))
+        (expect (typep condition 'host-operation-failed) :to-be t)
+        (expect (host-operation-failed-operation condition) :to-equal :create-symbolic-link)
+        (expect (path-exists-p link) :to-be nil)))))

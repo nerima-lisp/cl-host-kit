@@ -44,3 +44,15 @@ Atomic output, whole-file writers, and `copy-file` accept a temporary basename
 copies retain `.host-kit-copy-` when the option is omitted. Copying continues to
 preserve source metadata for new targets and existing target access bits when
 replacing a regular file.
+
+Directory enumeration, `ensure-directory-pathname`, and temporary-resource APIs
+now preserve literal native filename components as nonwild pathnames. Their
+`namestring` representation may contain CL escapes, including a backslash before
+`[`. Use `sb-ext:native-namestring` for native filename display, comparisons, and
+external program arguments rather than passing those CL escapes to the OS.
+
+Filesystem path arguments to APIs such as `file-metadata`, `delete-path`,
+`write-file-string`, and `try-acquire-file-lock` interpret strings as CL
+namestrings and reject them if they parse as wild pathnames. Use
+`sb-ext:parse-native-namestring` to construct a pathname for literal wildcard
+characters. Raw symbolic-link target strings continue to be stored verbatim.
