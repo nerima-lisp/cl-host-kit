@@ -148,6 +148,12 @@
    #:with-advisory-file-lock
    #:call-with-file-lock
    #:with-file-lock
+   #:file-lock
+   #:file-lock-stream
+   #:try-acquire-file-lock
+   #:release-file-lock
+   #:file-lock-held-by-other-process-p
    ;; Strings
    #:split-string
    #:string-prefix-p #:string-suffix-p #:join-strings))
+

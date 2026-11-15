@@ -49,8 +49,8 @@ terminating and reaping the child process group. RESULT holds captured output
    (lambda (condition stream)
      (format stream "HOST-KIT advisory file lock timed out after ~,3F seconds."
              (file-lock-timeout-seconds condition))))
-  (:documentation "Signalled when CALL-WITH-ADVISORY-FILE-LOCK cannot acquire
-a conflicting cooperative lock before its requested timeout."))
+  (:documentation "Signalled when CALL-WITH-ADVISORY-FILE-LOCK or CALL-WITH-FILE-LOCK cannot
+acquire a conflicting cooperative lock before its requested timeout."))
 
 (define-condition process-exit-error (host-kit-error)
   ((program :initarg :program :reader process-exit-error-program)

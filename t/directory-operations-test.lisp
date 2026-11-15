@@ -824,3 +824,54 @@
     (dolist (pathspec (quote ("/" "/tmp/..")))
       (signals host-operation-failed (delete-directory-tree pathspec))
       (signals host-operation-failed (delete-path pathspec :recursive t)))))
+
+(describe "native literal directory enumeration"
+  (it "returns literal direct entry pathnames with their metadata"
+    (with-scratch-directory (scratch)
+      (let ((file (merge-pathnames
+                   (sb-ext:parse-native-namestring "space [bracket] # 日本語.txt")
+                   scratch))
+            (entries nil))
+        (write-file-string "payload" file)
+        (call-with-directory-entries
+         (lambda (path metadata)
+           (push (list path (file-metadata-kind metadata)
+                       (file-metadata-size metadata)) entries))
+         scratch)
+        (expect entries :to-equal (list (list file :regular-file 7)))
+        (expect (wild-pathname-p (caar entries)) :to-be nil)
+        (expect (read-file-string (caar entries)) :to-equal "payload"))))
+  (it "walks literal directory and file names without interpreting wildcard syntax"
+    (with-scratch-directory (scratch)
+      (let* ((nested (merge-pathnames
+                      (sb-ext:parse-native-namestring "nested*?[\\/") scratch))
+             (file (merge-pathnames
+                    (sb-ext:parse-native-namestring "file*?[\\.txt") nested))
+             (entries nil))
+        (create-directory nested)
+        (write-file-string "payload" file)
+        (call-with-directory-tree
+         (lambda (path metadata depth)
+           (push (list path (file-metadata-kind metadata) depth) entries))
+         scratch)
+        (setf entries (nreverse entries))
+        (expect entries :to-equal (list (list (merge-pathnames (sb-ext:parse-native-namestring "nested*?[\\") scratch) :directory 1) (list file :regular-file 2)))
+        (expect (every (lambda (entry) (not (wild-pathname-p (first entry)))) entries) :to-be t)
+        (expect (read-file-string file) :to-equal "payload")))))
+
+(describe "native deletion conversion failures"
+  (it-each ((:error) (:ignore))
+      "wraps wildcard pathname conversion with missing policy ~S" (policy)
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "wild*.txt" scratch))
+             (condition (handler-case
+                            (delete-path target :if-does-not-exist policy)
+                          (host-operation-failed (condition) condition))))
+        (expect (typep condition 'host-operation-failed) :to-be t)
+        (expect (host-operation-failed-operation condition) :to-equal :delete-path)
+        (expect (host-operation-failed-target condition) :to-equal target))))
+  (it "still ignores a missing ordinary path without suppressing conversion errors"
+    (with-scratch-directory (scratch)
+      (expect (delete-path (merge-pathnames "missing.txt" scratch)
+                           :if-does-not-exist :ignore)
+              :to-be nil))))

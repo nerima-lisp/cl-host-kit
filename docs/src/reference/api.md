@@ -21,7 +21,7 @@ single source of truth for what is exported).
   `process-timeout-seconds`, and `process-timeout-result`; the result contains
   the captured terminal data.
 - **`file-lock-timeout`** — Signalled when an advisory lock cannot be acquired
-  within an explicit `call-with-advisory-file-lock` timeout. Its
+  within an explicit `call-with-advisory-file-lock` or `call-with-file-lock` timeout. Its
   `file-lock-timeout-seconds` accessor returns the requested timeout.
 - **`process-exit-error`** (`program` `arguments` `exit-code` `signal`
   `expected-exit-codes` `result`) — Signalled by `ensure-program-success` when
@@ -447,7 +447,7 @@ locks.
     true, a successful output stream is flushed and `fsync`ed before it closes.
 - **`(with-temporary-file (stream pathname &key directory prefix suffix keep direction element-type external-format attempts synchronize) &body body)`**
   — Lexically scoped macro form of `call-with-temporary-file`.
-- **`(call-with-atomic-output-file thunk target &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede))`**
+- **`(call-with-atomic-output-file thunk target &key (element-type 'character) (external-format :utf-8) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`**
   — Call `thunk` with an output stream, then atomically replace `target` only
   after the stream closes successfully. Failures leave the old target intact;
   replacing an existing regular file preserves its access permission bits.
@@ -458,17 +458,23 @@ locks.
   `if-exists` is `:supersede` (the default) or `:error`; `:error` rejects an
   existing target before creating a temporary file, but cannot atomically exclude
   a concurrent target creator.
-- **`(with-atomic-output-file (stream target &key element-type external-format synchronize if-exists) &body body)`**
+  `mode` is NIL or access bits from `#o000` through `#o777`. For a new target,
+  a supplied mode is applied through the temporary stream's descriptor before
+  rename; NIL retains the temporary file's `#o600` mode. An existing target's
+  access bits take precedence. `prefix` selects the temporary basename prefix;
+  it must be a filename fragment without directory separators.
+- **`(with-atomic-output-file (stream target &key element-type external-format synchronize if-exists mode prefix) &body body)`**
   — Lexically scoped macro form of `call-with-atomic-output-file`.
-- **`(write-file-string string pathspec &key (external-format :utf-8) (synchronize nil) (if-exists :supersede))`** —
+- **`(write-file-string string pathspec &key (external-format :utf-8) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** —
   Atomically write `string` and return the absolute target pathname.
-- **`(write-file-lines lines pathspec &key (external-format :utf-8) (line-terminator #\Newline) (synchronize nil) (if-exists :supersede))`** —
+- **`(write-file-lines lines pathspec &key (external-format :utf-8) (line-terminator #\Newline) (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** —
   Atomically write a proper list of strings, appending `line-terminator` after
   each line, then return the absolute target pathname. `line-terminator` may
   be a character or string.
-- **`(write-file-octets octets pathspec &key (synchronize nil) (if-exists :supersede))`** — Atomically write an
+- **`(write-file-octets octets pathspec &key (synchronize nil) (if-exists :supersede) mode (prefix ".host-kit-"))`** — Atomically write an
   `(unsigned-byte 8)` array and return the absolute target pathname.
-- **`(copy-file source target &key (if-exists :error) (synchronize nil) (follow-symlinks t))`** — Stream a
+  The whole-file writers forward `mode` and `prefix` to `call-with-atomic-output-file`.
+- **`(copy-file source target &key (if-exists :error) (synchronize nil) (follow-symlinks t) prefix)`** — Stream a
   binary copy of `source` into an atomic target, then return the absolute target
   pathname. `if-exists` is `:error` (the default) or `:supersede`; only the
   latter replaces an existing target. The `:error` check cannot atomically
@@ -482,6 +488,9 @@ locks.
   times; an existing regular target retains its access permission bits when
   superseded. With `follow-symlinks` false, a symbolic source is recreated as a
   symbolic link with the same raw target text, including broken or relative links.
+  Omitting `prefix` uses `.host-kit-` for a regular file and `.host-kit-copy-`
+  for a symbolic link's staging directory. Supplying `prefix` sets the staging
+  basename prefix for either kind of copy.
 - **`(copy-directory-tree source target &key (synchronize nil))`** — Copy a real
   source directory, including empty directories and symbolic links without
   following them, into an initially absent target directory. Regular files are
@@ -509,9 +518,12 @@ locks.
   provide coordination. A non-NIL `timeout` bounds `wait` with a monotonic
   deadline and signals `file-lock-timeout` on expiry. Nested scopes on the same
   stream are reentrant: only the outermost scope releases the POSIX lock.
-  POSIX record locks belong to the process, so a nested scope for the same file
-  must use that original stream; do not open or close another stream for the
-  file while a lock scope is active.
+  POSIX record locks belong to the process. Within one thread, a nested scope
+  for the same file must use the original stream; do not open or close another
+  stream for the file while a lock scope is active. A retained lock for the inode rejects a
+  scoped acquisition with `host-operation-failed`, regardless of `wait` or
+  `timeout`. Caller-supplied streams are neither flushed nor closed by the
+  scoped lock API.
   Repositioning `stream`
   in `thunk` does not change the locked range; the stream retains its final
   callback position after the lock is released.
@@ -519,12 +531,69 @@ locks.
   scoped macro form of `call-with-advisory-file-lock`.
 - **`(call-with-file-lock thunk pathspec &key (wait t) timeout (mode :exclusive))`** — Opens `pathspec`
   for non-destructive I/O, creating an absent file, acquires the advisory lock from byte zero through EOF,
-  calls `thunk` with the open stream, then releases and closes it on every exit path. Options have the same
-  semantics as `call-with-advisory-file-lock`. Each call owns a descriptor; for nested locking on the same
-  file, use `call-with-advisory-file-lock` with a supplied stream.
+  calls `thunk` with the open stream, then ends its ownership on every exit path.
+  The callback must not reuse the stream after returning. If another local
+  shared scope remains, the owned descriptor closes when the last shared owner
+  exits. Pending output is handled when the last local shared owner exits:
+  normal completion of the opening callback flushes it before unlocking;
+  abnormal completion discards it when the owned stream closes. During unwinding
+  from a callback error, dynamic `throw`, or another nonlocal exit, cleanup still
+  runs and secondary cleanup errors are suppressed to preserve the original
+  error or control transfer. After a normal callback return, cleanup failures
+  are reported to the caller.
+  Options have the same lock-contention semantics as
+  `call-with-advisory-file-lock`. If another thread has a scoped reservation,
+  `wait` true waits before opening a descriptor, using one `timeout` deadline
+  for both local and other-process lock contention. With `wait` false, the
+  request fails immediately with `host-operation-failed`; expiry signals
+  `file-lock-timeout`. This pathname waiting also applies to shared requests;
+  already-open supplied streams can share a lock without opening another fd.
+  A retained reservation or a pathname scope already held by the same thread
+  signals `host-operation-failed` immediately, regardless of `wait` or `timeout`.
+  Each call owns a descriptor; nested locking must use
+  `call-with-advisory-file-lock` with the original stream.
 - **`(with-file-lock (stream pathspec &key (wait t) timeout (mode :exclusive)) &body body)`** — Lexically
   scoped macro form for `call-with-file-lock`; binds the opened, locked stream in `body` and preserves all
   body values.
+- **`file-lock`** — An exclusive whole-file advisory lock retained until explicit
+  release or process exit. POSIX record locks belong to the process: do not open
+  or close another stream for the same inode while holding the lock. The scoped
+  APIs and retained locks share the process ownership registry, which keeps the
+  owned stream reachable until release.
+- **`(try-acquire-file-lock pathspec &key (mode #o600))`** — Return a `file-lock`
+  immediately, or NIL when another process holds a conflicting lock. Create an
+  absent file with `mode` access bits, subject to umask; preserve existing file
+  permissions. `mode` accepts integers from `#o000` through `#o777`.
+  A lock already registered in this process signals
+  `host-operation-failed` without opening another descriptor. Other operational
+  failures also signal `host-operation-failed`.
+- **`(file-lock-stream lock)`** — Return the owned UTF-8 character stream,
+  initially positioned at byte zero, for reading or writing lock metadata.
+  Opening the lock preserves its contents. Writes begin at the current stream
+  position and overwrite existing content without truncating trailing bytes.
+  Flush metadata before another process reads it. Do not close the stream
+  directly or use it after release.
+- **`(release-file-lock lock)`** — Flush metadata while locked, then release the
+  lock and close its stream, returning T once and NIL on subsequent calls. Any
+  thread may release it. Release leaves the lock file on disk. On I/O failure,
+  cleanup still attempts to unlock and
+  close the stream and retires the reservation; the first error is reported as
+  `host-operation-failed`.
+- **`(file-lock-held-by-other-process-p pathspec)`** — Query a conflicting
+  other-process lock without acquiring or retaining one. Return NIL for an
+  absent path. A locally registered descriptor is reused for the query, which
+  ignores this process's locks. The query checks byte zero through EOF, so it
+  can detect a foreign shared lock or a foreign lock outside a local scoped
+  lock's range. Querying or rejecting a local acquisition leaves the
+  registered lock intact. The result may become
+  stale immediately; use `try-acquire-file-lock` to acquire a lock.
+
+Lock registry changes, pathname `stat`/`open`, and owned-stream flush/close
+use one process-wide mutex. A blocking filesystem call, such as access to NFS
+or a FIFO, can therefore delay other kit lock operations even on different
+paths. `wait` and `timeout` control lock contention; they do not bound those
+filesystem calls. Waiting for another thread's scoped reservation releases the
+mutex between checks. User callbacks run outside the mutex.
 
 ## Strings
 

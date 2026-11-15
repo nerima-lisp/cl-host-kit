@@ -12,7 +12,7 @@ implementation dependency."
   :author "takeokunn <bararararatty@gmail.com>"
   :maintainer "takeokunn <bararararatty@gmail.com>"
   :license "MIT"
-  :version "0.3.1"
+  :version "0.4.0"
   :homepage "https://github.com/nerima-lisp/cl-host-kit"
   :bug-tracker "https://github.com/nerima-lisp/cl-host-kit/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-host-kit.git")
@@ -41,7 +41,7 @@ implementation dependency."
   :author "takeokunn <bararararatty@gmail.com>"
   :maintainer "takeokunn <bararararatty@gmail.com>"
   :license "MIT"
-  :version "0.3.1"
+  :version "0.4.0"
   :homepage "https://github.com/nerima-lisp/cl-host-kit"
   :bug-tracker "https://github.com/nerima-lisp/cl-host-kit/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-host-kit.git")
@@ -66,3 +66,4 @@ implementation dependency."
              (declare (ignore operation component))
              (unless (funcall (symbol-function (find-symbol "RUN-TESTS" "CL-HOST-KIT/TEST")))
                (error "cl-host-kit test suite failed"))))
+

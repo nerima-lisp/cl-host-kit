@@ -497,3 +497,20 @@
             :directory
             parent))
         (expect (read-file-string parent) :to-equal "preserved")))))
+
+(cl-weave:describe-sequential "native OS pathname temporary directory"
+  (it "uses a literal bracket-named TMPDIR for the returned path and temporary files"
+    (with-scratch-directory (scratch)
+      (let ((directory (merge-pathnames
+                        (sb-ext:parse-native-namestring "tmpdir[record]/") scratch)))
+        (create-directory directory)
+        (with-environment-variable
+            ("TMPDIR" (sb-ext:native-namestring directory))
+          (let ((actual (temporary-directory)))
+            (expect actual :to-equal directory)
+            (expect (wild-pathname-p actual) :to-be nil)
+            (expect (file-metadata-kind (file-metadata actual)) :to-equal :directory))
+          (call-with-temporary-file
+           (lambda (stream path)
+             (declare (ignore stream))
+             (expect (pathname-directory path) :to-equal (pathname-directory directory)))))))))

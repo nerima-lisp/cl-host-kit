@@ -74,8 +74,8 @@ KIND is one of :REGULAR-FILE, :DIRECTORY, :SYMBOLIC-LINK,
       (handler-case
           (%metadata-from-stat
            (if follow-symlinks
-               (sb-posix:stat (namestring pathname))
-               (sb-posix:lstat (namestring pathname))))
+               (sb-posix:stat (%native-file-namestring pathname))
+               (sb-posix:lstat (%native-file-namestring pathname))))
         (sb-posix:syscall-error (condition)
           (unless (member (sb-posix:syscall-errno condition)
                           (list sb-posix:enoent sb-posix:enotdir))
@@ -91,8 +91,8 @@ be observed. Missing paths and invalid links signal HOST-OPERATION-FAILED."
       (%with-host-operation (:file-metadata pathname)
         (%metadata-from-stat
          (if follow-symlinks
-             (sb-posix:stat (namestring pathname))
-             (sb-posix:lstat (namestring pathname))))))))
+             (sb-posix:stat (%native-file-namestring pathname))
+             (sb-posix:lstat (%native-file-namestring pathname))))))))
 
 (defun symbolic-link-p (pathspec)
   "Return true when PATHSPEC is a symbolic link, including a broken link.
@@ -100,7 +100,7 @@ Missing paths signal HOST-OPERATION-FAILED rather than being treated as links."
   (let ((pathname (ensure-pathname pathspec)))
     (%with-host-operation (:symbolic-link-p pathname)
       (sb-posix:s-islnk
-       (sb-posix:stat-mode (sb-posix:lstat (namestring pathname)))))))
+       (sb-posix:stat-mode (sb-posix:lstat (%native-file-namestring pathname)))))))
 
 (defun read-symbolic-link (pathspec)
   "Return PATHSPEC's raw symbolic-link target as a string.
@@ -108,7 +108,7 @@ Relative targets remain relative to the link's containing directory. A missing
 path or a path that is not a symbolic link signals HOST-OPERATION-FAILED."
   (let ((pathname (ensure-pathname pathspec)))
     (%with-host-operation (:read-symbolic-link pathname)
-      (sb-posix:readlink (namestring pathname)))))
+      (sb-posix:readlink (%native-file-namestring pathname)))))
 
 (defun create-symbolic-link (target link-pathspec)
   "Create LINK-PATHSPEC as a symbolic link to TARGET and return its absolute pathname.
@@ -116,10 +116,10 @@ TARGET may be a string or pathname. A string is stored without normalization,
 so a relative target remains relative to the new link's containing directory.
 Existing destination entries are never replaced."
   (check-type target (or string pathname))
-  (let ((link (ensure-absolute-pathname link-pathspec))
-        (target-namestring (if (pathnamep target) (namestring target) target)))
+  (let ((link (ensure-absolute-pathname link-pathspec)))
     (%with-host-operation (:create-symbolic-link link)
-      (sb-posix:symlink target-namestring (namestring link)))
+      (let ((target-namestring (%native-file-namestring target)))
+        (sb-posix:symlink (%native-file-namestring target-namestring) (%native-file-namestring link))))
     link))
 
 (defun create-hard-link (source link-pathspec)
@@ -129,7 +129,7 @@ reside on the same filesystem, as required by POSIX."
   (let ((source (ensure-pathname source))
         (link (ensure-absolute-pathname link-pathspec)))
     (%with-host-operation (:create-hard-link (list source link))
-      (sb-posix:link (namestring source) (namestring link)))
+      (sb-posix:link (%native-file-namestring source) (%native-file-namestring link)))
     link))
 
 (defun set-file-mode (pathspec mode)
@@ -139,7 +139,7 @@ POSIX CHMOD semantics."
   (check-type mode (integer 0 #o7777))
   (let ((pathname (ensure-absolute-pathname pathspec)))
     (%with-host-operation (:set-file-mode pathname)
-      (sb-posix:chmod (namestring pathname) mode))
+      (sb-posix:chmod (%native-file-namestring pathname) mode))
     pathname))
 
 (defun set-file-owner (pathspec &key (owner-id nil owner-id-p) (group-id nil group-id-p))
@@ -156,7 +156,7 @@ POSIX CHOWN semantics."
   (let ((pathname (ensure-absolute-pathname pathspec)))
     (%with-host-operation (:set-file-owner pathname)
       (let ((metadata (file-metadata pathname)))
-        (sb-posix:chown (namestring pathname)
+        (sb-posix:chown (%native-file-namestring pathname)
                         (if owner-id-p
                             owner-id
                             (file-metadata-owner-id metadata))
@@ -180,7 +180,7 @@ time. Symbolic links are resolved, matching POSIX UTIME semantics."
       (if (or access-time-p modification-time-p)
           (let ((metadata (file-metadata pathname)))
             (sb-posix:utime
-             (namestring pathname)
+             (%native-file-namestring pathname)
              (%universal-time->unix-time
               (if access-time-p
                   access-time
@@ -189,7 +189,7 @@ time. Symbolic links are resolved, matching POSIX UTIME semantics."
               (if modification-time-p
                   modification-time
                   (file-metadata-modification-time metadata)))))
-          (sb-posix:utime (namestring pathname))))
+          (sb-posix:utime (%native-file-namestring pathname))))
     pathname))
 
 (defun path-exists-p (pathspec)
@@ -200,7 +200,7 @@ symbolic link returns true."
     (%with-host-operation (:path-exists-p pathname)
                           (handler-case
                               (progn
-                                (sb-posix:lstat (namestring pathname))
+                                (sb-posix:lstat (%native-file-namestring pathname))
                                 t)
                             (sb-posix:syscall-error (condition)
                                                     (unless (member (sb-posix:syscall-errno condition)
@@ -234,7 +234,7 @@ HOST-OPERATION-FAILED."
   (let ((pathname (file-exists-p pathspec)))
     (and pathname
          (handler-case
-             (zerop (sb-posix:access (namestring pathname) access-mode))
+             (zerop (sb-posix:access (%native-file-namestring pathname) access-mode))
            (error () nil))
          pathname)))
 

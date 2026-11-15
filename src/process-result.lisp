@@ -80,7 +80,7 @@ current directory."
            for candidate = (merge-pathnames program
                                             (if (string= directory "")
                                                 (ensure-directory-pathname
-                                                 (sb-posix:getcwd))
+                                                 (sb-ext:parse-native-namestring (sb-posix:getcwd)))
                                                 (ensure-directory-pathname directory)))
            for executable = (file-executable-p candidate)
            when executable return executable))))

@@ -229,3 +229,19 @@
               (ignore-errors (sb-thread:join-thread inner-thread))))
           (delete-directory-tree outer :if-does-not-exist :ignore)
           (delete-directory-tree inner :if-does-not-exist :ignore))))))
+
+(cl-weave:describe-sequential "native OS pathname working directory"
+  (it "parses the native getcwd result without treating brackets as wildcards"
+    (with-scratch-directory (scratch)
+      (let ((directory (merge-pathnames
+                        (sb-ext:parse-native-namestring "cwd[record]/child/") scratch))
+            (original (sb-posix:getcwd)))
+        (ensure-directories-exist directory)
+        (unwind-protect
+             (progn
+               (chdir directory)
+               (let ((actual (getcwd)))
+                 (expect actual :to-equal (truename directory))
+                 (expect (wild-pathname-p actual) :to-be nil)
+                 (expect (file-metadata-kind (file-metadata actual)) :to-equal :directory)))
+          (sb-posix:chdir original))))))

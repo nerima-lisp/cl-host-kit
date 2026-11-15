@@ -225,7 +225,7 @@ equivalent of a modern language's os.exit()/process.exit(). Never returns."
     (let ((entry (sb-posix:getpwuid (effective-user-id))))
       (unless entry
         (error "Unable to find a passwd entry for the effective user."))
-      (ensure-directory-pathname (ensure-absolute-pathname (sb-posix:passwd-dir entry))))))
+      (ensure-directory-pathname (ensure-absolute-pathname (sb-ext:parse-native-namestring (sb-posix:passwd-dir entry)))))))
 
 (defun user-home-directory ()
   "Return the current user home directory as an absolute directory pathname.

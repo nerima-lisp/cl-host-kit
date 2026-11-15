@@ -518,7 +518,7 @@
         (rename-file replacement source)
         (signals error
           (host-kit::%copy-regular-file-atomically
-           source target metadata nil nil))
+           source target metadata nil nil ".host-kit-"))
         (expect (path-exists-p target) :to-be nil)))))
   (it
   "rejects a source whose recorded device no longer matches the opened file"
@@ -535,7 +535,7 @@
                 :inode (file-metadata-inode real-metadata))))
         (signals error
           (host-kit::%copy-regular-file-atomically
-           source target mismatched-metadata nil nil))
+           source target mismatched-metadata nil nil ".host-kit-"))
         (expect (path-exists-p target) :to-be nil)))))
   (it
   "copies metadata from the opened source inode"
@@ -549,7 +549,7 @@
         (set-file-mode source #o741)
         (set-file-times source :modification-time modification-time)
         (host-kit::%copy-regular-file-atomically
-         source target stale-metadata nil nil)
+         source target stale-metadata nil nil ".host-kit-")
         (let ((copied-metadata (file-metadata target)))
           (expect (file-metadata-mode copied-metadata)
                   :to-equal
@@ -855,3 +855,191 @@
         (expect (subdirectories scratch)
                 :to-equal
                 (list source))))))
+
+
+(cl-weave:describe-sequential "atomic file creation options"
+  (it-each ((#o077) (#o000))
+      "applies the exact requested mode after writing a private staging file under umask ~O"
+      (mask)
+    (cl-weave:expect-assertions 7)
+    (let ((previous-mask (sb-posix:umask mask)))
+      (unwind-protect
+           (with-scratch-directory (scratch)
+             (let ((target (merge-pathnames "new.txt" scratch))
+                   (default-target (merge-pathnames "default.txt" scratch)))
+               (call-with-atomic-output-file
+                (lambda (stream)
+                  (expect (string-prefix-p "#new.txt#." (file-namestring (pathname stream))) :to-be t)
+                  (expect (file-metadata-mode (file-metadata (pathname stream))) :to-equal #o600)
+                  (expect (path-exists-p target) :to-be nil)
+                  (write-string "private" stream))
+                target :mode #o664 :prefix "#new.txt#.")
+               (expect (file-metadata-mode (file-metadata target)) :to-equal #o664)
+               (write-file-string "replacement" target :mode #o600 :prefix "#new.txt#.")
+               (expect (file-metadata-mode (file-metadata target)) :to-equal #o664)
+               (write-file-string "default" default-target)
+               (expect (file-metadata-mode (file-metadata default-target)) :to-equal #o600)
+               (expect (sort (directory-files scratch) #'string< :key #'namestring)
+                       :to-equal (list default-target target))))
+        (sb-posix:umask previous-mask))))
+  (it "forwards creation options through line and octet writers"
+    (cl-weave:expect-assertions 2)
+    (with-scratch-directory (scratch)
+      (let ((lines (merge-pathnames "lines" scratch))
+            (octets (merge-pathnames "octets" scratch)))
+        (write-file-lines '("line") lines :mode #o640 :prefix "lines-")
+        (write-file-octets (make-array 1 :element-type '(unsigned-byte 8) :initial-element 42)
+                           octets :mode #o640 :prefix "octets-")
+        (expect (file-metadata-mode (file-metadata lines)) :to-equal #o640)
+        (expect (file-metadata-mode (file-metadata octets)) :to-equal #o640))))
+  (it-each ((nil ".host-kit-") ("#copy#." "#copy#."))
+      "uses regular copy staging prefix ~S while preserving source permissions"
+      (prefix expected-prefix)
+    (cl-weave:expect-assertions (if prefix 5 6))
+    (with-scratch-directory (scratch)
+      (let* ((source (merge-pathnames "source" scratch))
+             (target (merge-pathnames "copy" scratch))
+             (original (symbol-function 'host-kit::%copy-octet-stream))
+             (staging-name nil))
+        (write-file-string "contents" source)
+        (set-file-mode source #o640)
+        (with-function-redefinition
+            ('host-kit::%copy-octet-stream
+             (lambda (input output)
+               (setf staging-name (file-namestring (pathname output)))
+               (funcall original input output)))
+          (if prefix
+              (copy-file source target :prefix prefix)
+              (copy-file source target)))
+        (expect staging-name :to-be-truthy)
+        (expect (string-prefix-p expected-prefix staging-name) :to-be t)
+        (unless prefix
+          (expect (string-prefix-p ".host-kit-copy-" staging-name) :to-be nil))
+        (expect (read-file-string target) :to-equal "contents")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640)
+        (expect (subdirectories scratch) :to-equal nil))))
+  (it-each ((nil ".host-kit-copy-") ("#link#." "#link#."))
+      "uses symbolic-link copy staging prefix ~S"
+      (prefix expected-prefix)
+    (cl-weave:expect-assertions 4)
+    (with-scratch-directory (scratch)
+      (let* ((source (merge-pathnames "source-link" scratch))
+             (target (merge-pathnames "copy-link" scratch))
+             (original (symbol-function 'host-kit::%rename-path-overwriting-target))
+             (staging-name nil))
+        (sb-posix:symlink "missing-target" (namestring source))
+        (with-function-redefinition
+            ('host-kit::%rename-path-overwriting-target
+             (lambda (staged destination)
+               (setf staging-name (car (last (pathname-directory staged))))
+               (funcall original staged destination)))
+          (if prefix
+              (copy-file source target :follow-symlinks nil :prefix prefix)
+              (copy-file source target :follow-symlinks nil)))
+        (expect staging-name :to-be-truthy)
+        (expect (string-prefix-p expected-prefix staging-name) :to-be t)
+        (expect (sb-posix:readlink (namestring target)) :to-equal "missing-target")
+        (expect (subdirectories scratch) :to-equal nil))))
+  (it "rejects invalid creation options without replacing a target"
+    (cl-weave:expect-assertions 3)
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "unchanged" scratch)))
+        (write-file-string "old" target)
+        (signals type-error (write-file-string "new" target :mode -1))
+        (signals error (write-file-string "new" target :prefix "../escape"))
+        (expect (read-file-string target) :to-equal "old")))))
+
+
+(describe "atomic publication permissions"
+  (it "sets mode before rename and removes custom staging files on failure"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "private" scratch))
+             (original (symbol-function 'host-kit::%rename-path-overwriting-target))
+             (observed nil))
+        (unwind-protect
+             (progn
+               (setf (symbol-function 'host-kit::%rename-path-overwriting-target)
+                     (lambda (source destination)
+                       (expect (file-metadata-mode (file-metadata source)) :to-equal #o640)
+                       (expect (path-exists-p destination) :to-be nil)
+                       (setf observed t)
+                       (funcall original source destination)))
+               (write-file-string "private" target :mode #o640 :prefix "private-"))
+          (setf (symbol-function 'host-kit::%rename-path-overwriting-target) original))
+        (expect observed :to-be t)
+        (signals host-operation-failed
+          (call-with-atomic-output-file
+           (lambda (stream) (write-string "unfinished" stream) (error "abort"))
+           target :mode #o600 :prefix "private-"))
+        (expect (read-file-string target) :to-equal "private")
+        (expect (directory-files scratch) :to-equal (list target))))))
+
+
+(describe "atomic synchronization with restrictive creation modes"
+  (it-each ((#o000) (#o200))
+      "publishes synchronized new files with mode ~O through their existing descriptor"
+      (mode)
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "restricted" scratch)))
+        (expect (write-file-string "contents" target :mode mode :synchronize t)
+                :to-equal (ensure-absolute-pathname target))
+        (expect (file-metadata-mode (file-metadata target)) :to-equal mode)
+        (set-file-mode target #o600)
+        (expect (read-file-string target) :to-equal "contents")))))
+
+(describe "native literal file paths"
+  (it "writes a new literal filename through atomic publication"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "new*?[\\.txt") scratch)))
+        (write-file-string "fresh" target :mode #o640)
+        (expect (read-file-string target) :to-equal "fresh")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "replaces a literal filename and preserves its existing permissions"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "existing*?[\\.txt") scratch)))
+        (with-open-file (stream target :direction :output :if-exists :error)
+          (write-string "old" stream))
+        (sb-posix:chmod target #o640)
+        (write-file-string "replacement" target :mode #o600)
+        (expect (read-file-string target) :to-equal "replacement")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "copies between literal filenames without losing data or mode"
+    (with-scratch-directory (scratch)
+      (let ((source (merge-pathnames (sb-ext:parse-native-namestring "source*?[\\.txt") scratch))
+            (target (merge-pathnames (sb-ext:parse-native-namestring "copy*?[\\.txt") scratch)))
+        (with-open-file (stream source :direction :output :if-exists :error)
+          (write-string "payload" stream))
+        (sb-posix:chmod source #o640)
+        (copy-file source target)
+        (expect (read-file-string target) :to-equal "payload")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "keeps temporary directory names and prefix and suffix characters literal"
+    (with-scratch-directory (scratch)
+      (let ((parent (merge-pathnames (sb-ext:parse-native-namestring "parent*?[\\/") scratch)))
+        (sb-posix:mkdir parent #o700)
+        (call-with-temporary-file
+         (lambda (stream path)
+           (expect (pathname-directory path) :to-equal (pathname-directory parent))
+           (let ((name (sb-ext:native-namestring
+                        (make-pathname :directory nil :defaults path))))
+             (expect (search "prefix*?[\\" name) :to-equal 0)
+             (expect (search ".suffix*?[\\" name) :to-be-truthy))
+           (write-string "temporary" stream)
+           (finish-output stream)
+           (expect (read-file-string path) :to-equal "temporary"))
+         :directory parent :prefix "prefix*?[\\" :suffix ".suffix*?[\\")))))
+
+(describe "native literal temporary directory paths"
+  (it "keeps a generated directory prefix literal in the returned pathname"
+    (with-scratch-directory (scratch)
+      (call-with-temporary-directory
+       (lambda (path)
+         (expect (probe-file path) :to-be-truthy)
+         (expect (file-metadata-kind (file-metadata path)) :to-equal :directory)
+         (expect (search "directory*?[\\"
+                         (car (last (pathname-directory path))))
+                 :to-equal 0))
+       :directory scratch :prefix "directory*?[\\"))))
+
+
+

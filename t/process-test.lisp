@@ -264,3 +264,22 @@
             (expect (probe-file marker) :to-be nil))
         (setf (symbol-function function-symbol) original-function)))))
 )
+
+(cl-weave:describe-sequential "native OS pathname executable search"
+  (it "finds an executable in a bracket-named current directory for an empty path segment"
+    (with-scratch-directory (scratch)
+      (let* ((directory (merge-pathnames
+                         (sb-ext:parse-native-namestring "search[record]/child/") scratch))
+             (executable (merge-pathnames "native-program" directory))
+             (original (sb-posix:getcwd)))
+        (ensure-directories-exist directory)
+        (write-file-string "#!/bin/sh" executable)
+        (set-file-mode executable #o700)
+        (unwind-protect
+             (progn
+               (chdir directory)
+               (let ((actual (find-program "native-program" :path "")))
+                 (expect actual :to-equal (truename executable))
+                 (expect (wild-pathname-p actual) :to-be nil)
+                 (expect (same-file-p actual executable) :to-be t)))
+          (sb-posix:chdir original))))))

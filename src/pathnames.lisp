@@ -4,6 +4,12 @@
 ;;;; direct and small; it does not reproduce UIOP's optional-argument surface.
 (in-package #:host-kit)
 
+(defun %native-file-namestring (pathspec)
+  ;; Native strings, including relative symlink targets, must stay verbatim.
+  (etypecase pathspec
+    (pathname (sb-ext:native-namestring (translate-logical-pathname pathspec)))
+    (string pathspec)))
+
 (defun absolute-pathname-p (pathspec)
   "True when PATHSPEC (a pathname designator) denotes an absolute path."
   (eq (car (pathname-directory (pathname pathspec))) :absolute))
@@ -27,7 +33,12 @@
         :directory
         (append
           (or (pathname-directory pathname) (list :relative))
-          (list (file-namestring pathname)))
+          (list (let ((file-part (make-pathname :directory nil :defaults pathname)))
+            (if (or (typep pathname 'logical-pathname)
+                    (not (stringp (pathname-name pathname)))
+                    (wild-pathname-p file-part))
+                (file-namestring pathname)
+                (%native-file-namestring file-part)))))
         :name
         nil
         :type
