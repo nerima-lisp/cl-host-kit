@@ -29,7 +29,7 @@ reported without following links unless FOLLOW-SYMLINKS is true. Returning
       (unless (eq (file-metadata-kind (file-metadata directory)) :directory)
         (error "~S does not denote a directory" directory)))
     (dolist (name (%directory-entry-names directory))
-      (let* ((entry (merge-pathnames name directory))
+      (let* ((entry (merge-pathnames (sb-ext:parse-native-namestring name) directory))
              (metadata (file-metadata entry :follow-symlinks follow-symlinks)))
         (when (eq (funcall thunk entry metadata) :stop)
           (return)))))
@@ -97,7 +97,7 @@ FOLLOW-SYMLINKS is true, links to directories are included."
 
     (defun %walk-directory-tree-entry
       (thunk directory name depth follow-symlinks max-depth visited)
-    (let* ((entry (merge-pathnames name directory))
+    (let* ((entry (merge-pathnames (sb-ext:parse-native-namestring name) directory))
            (metadata (file-metadata entry :follow-symlinks follow-symlinks))
            (directive (funcall thunk entry metadata (1+ depth))))
       (case directive

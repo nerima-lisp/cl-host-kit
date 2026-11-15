@@ -33,7 +33,12 @@
         :directory
         (append
           (or (pathname-directory pathname) (list :relative))
-          (list (file-namestring pathname)))
+          (list (let ((file-part (make-pathname :directory nil :defaults pathname)))
+            (if (or (typep pathname 'logical-pathname)
+                    (not (stringp (pathname-name pathname)))
+                    (wild-pathname-p file-part))
+                (file-namestring pathname)
+                (%native-file-namestring file-part)))))
         :name
         nil
         :type

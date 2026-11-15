@@ -224,3 +224,36 @@
     (let ((*default-pathname-defaults* #P"/srv/app/"))
       (expect (namestring (relative-pathname "logs/app.txt" "cache/"))
               :to-equal "../logs/app.txt"))))
+
+(describe "native directory-form pathname components"
+  (it "folds a physical literal file part into a directory without adding escapes"
+    (let* ((input (sb-ext:parse-native-namestring "/tmp/literal*?[x]\\back.txt"))
+           (actual (ensure-directory-pathname input)))
+      (expect actual
+              :to-equal (sb-ext:parse-native-namestring "/tmp/literal*?[x]\\back.txt/"))
+      (expect (car (last (pathname-directory actual)))
+              :to-equal "literal*?[x]\\back.txt")
+      (expect (wild-pathname-p actual) :to-be nil)))
+  (it-each ((#P"/tmp/.hidden" (:absolute "tmp" ".hidden"))
+            (#P"/tmp/name." (:absolute "tmp" "name."))
+            (#P"/tmp/*.txt" (:absolute "tmp" "*.txt"))
+            (#P"/tmp/name.*" (:absolute "tmp" "name.*"))
+            (#P"/tmp/*/name.txt" (:absolute "tmp" :wild "name.txt"))
+            (#P"/tmp/*/" (:absolute "tmp" :wild)))
+      "preserves the lexical directory components of ~S" (input components)
+    (let ((actual (ensure-directory-pathname input)))
+      (expect (pathname-directory actual) :to-equal components)
+      (expect (directory-pathname-p actual) :to-be t)))
+  (it "preserves an explicit physical pathname version"
+    (let* ((input (make-pathname :directory '(:absolute "tmp")
+                                 :name "name" :type "txt" :version 42))
+           (actual (ensure-directory-pathname input)))
+      (expect (pathname-directory actual) :to-equal '(:absolute "tmp" "name.txt"))
+      (expect (pathname-version actual) :to-equal 42)))
+  (it "preserves the error for a type-only physical pathname"
+    (signals sb-kernel::no-namestring-error
+      (ensure-directory-pathname
+       (make-pathname :directory '(:absolute "tmp") :name nil :type "txt"))))
+  (it "preserves the error for the existing logical pathname form"
+    (signals sb-kernel::namestring-parse-error
+      (ensure-directory-pathname (logical-pathname "SYS:FOO;BAR.LISP.NEWEST")))))
