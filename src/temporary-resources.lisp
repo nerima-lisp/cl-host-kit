@@ -25,7 +25,10 @@ honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
 
 (defun %temporary-template (directory prefix)
   "Return an SB-POSIX secure temporary-name template beneath DIRECTORY."
-  (namestring (merge-pathnames (format nil "~AXXXXXX" prefix) directory)))
+  (%native-file-namestring
+   (merge-pathnames
+    (sb-ext:parse-native-namestring (format nil "~AXXXXXX" prefix))
+    directory)))
 
 (defun %name-collision-p (condition)
   (= (sb-posix:syscall-errno condition) sb-posix:eexist))
@@ -33,8 +36,7 @@ honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
 (defun %create-temporary-directory (directory prefix)
   "Create an owner-only directory with an OS-generated unpredictable name."
   (handler-case
-      (ensure-directory-pathname
-       (sb-posix:mkdtemp (%temporary-template directory prefix)))
+      (sb-ext:parse-native-namestring (sb-posix:mkdtemp (%native-file-namestring (%temporary-template directory prefix))) nil *default-pathname-defaults* :as-directory t)
     (sb-posix:syscall-error (condition)
       (unless (%name-collision-p condition) (error condition)))))
 
@@ -89,23 +91,23 @@ Delete it after normal return or signalling unless KEEP is true after success."
   :lazy-keys (:keep))
 
 (defun %temporary-file-pathname (template suffix)
-  (pathname (concatenate 'string template suffix)))
+  (sb-ext:parse-native-namestring (concatenate 'string template suffix)))
 
 (defun %open-temporary-file (directory prefix suffix direction element-type external-format)
   "Open a securely-created temporary file, or return NIL on final-name collision."
   (let ((pathname nil))
     (handler-case
         (multiple-value-bind (fd template)
-            (sb-posix:mkstemp (%temporary-template directory prefix))
+            (sb-posix:mkstemp (%native-file-namestring (%temporary-template directory prefix)))
           (let ((template-needs-cleanup-p t)
                 (pathname-needs-cleanup-p nil))
             (setf pathname (%temporary-file-pathname template suffix))
             (unwind-protect
                  (progn
                    (unless (string= suffix "")
-                     (sb-posix:link template (namestring pathname))
+                     (sb-posix:link (%native-file-namestring template) (%native-file-namestring pathname))
                      (setf pathname-needs-cleanup-p t)
-                     (sb-posix:unlink template)
+                     (sb-posix:unlink (%native-file-namestring template))
                      (setf template-needs-cleanup-p nil))
                    (let ((stream
                            (sb-sys:make-fd-stream
@@ -122,7 +124,7 @@ Delete it after normal return or signalling unless KEEP is true after success."
               (when fd
                 (ignore-errors (sb-posix:close fd)))
               (when template-needs-cleanup-p
-                (ignore-errors (sb-posix:unlink template)))
+                (ignore-errors (sb-posix:unlink (%native-file-namestring template))))
               (when pathname-needs-cleanup-p
                 (ignore-errors (delete-file pathname))))))
       (sb-posix:syscall-error (condition)

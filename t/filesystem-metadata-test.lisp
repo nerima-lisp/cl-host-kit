@@ -473,3 +473,38 @@ be normalized to satisfy"
                                         (expect (path-exists-p
                                                  (merge-pathnames "not-a-directory/child" scratch))
                                                 :to-be nil)))))
+
+(describe "native literal metadata paths"
+  (it "stats and changes metadata of a literal filename"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "stat*?[\\.txt") scratch)))
+        (with-open-file (stream target :direction :output :if-exists :error)
+          (write-string "payload" stream))
+        (expect (file-metadata-size (file-metadata target)) :to-equal 7)
+        (set-file-mode target #o640)
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "creates hard links between literal filenames"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "hard*?[\\.txt") scratch))
+            (alias (merge-pathnames (sb-ext:parse-native-namestring "alias*?[\\.txt") scratch)))
+        (with-open-file (stream target :direction :output :if-exists :error)
+          (write-string "payload" stream))
+        (create-hard-link target alias)
+        (expect (same-file-p target alias) :to-be-truthy)
+        (expect (read-file-string alias) :to-equal "payload"))))
+  (it "preserves a relative native string target verbatim when linking and copying"
+    (with-scratch-directory (scratch)
+      (let* ((native-target "relative*?[\\.txt")
+             (target (merge-pathnames (sb-ext:parse-native-namestring native-target) scratch))
+             (link (merge-pathnames (sb-ext:parse-native-namestring "link*?[\\") scratch))
+             (copy (merge-pathnames (sb-ext:parse-native-namestring "copied*?[\\") scratch)))
+        (with-open-file (stream target :direction :output :if-exists :error)
+          (write-string "payload" stream))
+        (create-symbolic-link native-target link)
+        (expect (read-symbolic-link link) :to-equal native-target)
+        (expect (read-file-string link) :to-equal "payload")
+        (expect (file-metadata-kind (file-metadata link :follow-symlinks nil))
+                :to-equal :symbolic-link)
+        (copy-file link copy :follow-symlinks nil)
+        (expect (read-symbolic-link copy) :to-equal native-target)
+        (expect (read-file-string copy) :to-equal "payload")))))

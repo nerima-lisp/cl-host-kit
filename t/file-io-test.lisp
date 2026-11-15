@@ -987,5 +987,59 @@
         (set-file-mode target #o600)
         (expect (read-file-string target) :to-equal "contents")))))
 
+(describe "native literal file paths"
+  (it "writes a new literal filename through atomic publication"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "new*?[\\.txt") scratch)))
+        (write-file-string "fresh" target :mode #o640)
+        (expect (read-file-string target) :to-equal "fresh")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "replaces a literal filename and preserves its existing permissions"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames (sb-ext:parse-native-namestring "existing*?[\\.txt") scratch)))
+        (with-open-file (stream target :direction :output :if-exists :error)
+          (write-string "old" stream))
+        (sb-posix:chmod target #o640)
+        (write-file-string "replacement" target :mode #o600)
+        (expect (read-file-string target) :to-equal "replacement")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "copies between literal filenames without losing data or mode"
+    (with-scratch-directory (scratch)
+      (let ((source (merge-pathnames (sb-ext:parse-native-namestring "source*?[\\.txt") scratch))
+            (target (merge-pathnames (sb-ext:parse-native-namestring "copy*?[\\.txt") scratch)))
+        (with-open-file (stream source :direction :output :if-exists :error)
+          (write-string "payload" stream))
+        (sb-posix:chmod source #o640)
+        (copy-file source target)
+        (expect (read-file-string target) :to-equal "payload")
+        (expect (file-metadata-mode (file-metadata target)) :to-equal #o640))))
+  (it "keeps temporary directory names and prefix and suffix characters literal"
+    (with-scratch-directory (scratch)
+      (let ((parent (merge-pathnames (sb-ext:parse-native-namestring "parent*?[\\/") scratch)))
+        (sb-posix:mkdir parent #o700)
+        (call-with-temporary-file
+         (lambda (stream path)
+           (expect (pathname-directory path) :to-equal (pathname-directory parent))
+           (let ((name (sb-ext:native-namestring
+                        (make-pathname :directory nil :defaults path))))
+             (expect (search "prefix*?[\\" name) :to-equal 0)
+             (expect (search ".suffix*?[\\" name) :to-be-truthy))
+           (write-string "temporary" stream)
+           (finish-output stream)
+           (expect (read-file-string path) :to-equal "temporary"))
+         :directory parent :prefix "prefix*?[\\" :suffix ".suffix*?[\\")))))
+
+(describe "native literal temporary directory paths"
+  (it "keeps a generated directory prefix literal in the returned pathname"
+    (with-scratch-directory (scratch)
+      (call-with-temporary-directory
+       (lambda (path)
+         (expect (probe-file path) :to-be-truthy)
+         (expect (file-metadata-kind (file-metadata path)) :to-equal :directory)
+         (expect (search "directory*?[\\"
+                         (car (last (pathname-directory path))))
+                 :to-equal 0))
+       :directory scratch :prefix "directory*?[\\"))))
+
 
 

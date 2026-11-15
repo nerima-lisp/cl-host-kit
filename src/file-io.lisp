@@ -12,7 +12,7 @@
   (let ((pathname (file-exists-p pathspec)))
     (when pathname
       (logand #o777
-              (sb-posix:stat-mode (sb-posix:stat (namestring pathname)))))))
+              (sb-posix:stat-mode (sb-posix:stat (%native-file-namestring pathname)))))))
 
 (defun %apply-existing-file-mode (source stream mode)
   "Apply existing permissions, or a new-file MODE, through the open STREAM."
@@ -26,7 +26,7 @@
   (let ((descriptor nil))
     (unwind-protect
          (progn
-           (setf descriptor (sb-posix:open (namestring pathname) sb-posix:o-rdonly))
+           (setf descriptor (sb-posix:open (%native-file-namestring pathname) sb-posix:o-rdonly))
            (sb-posix:fsync descriptor))
       (when descriptor
         (sb-posix:close descriptor)))))
@@ -386,7 +386,7 @@ same file when FOLLOW-SYMLINKS is true."
       (unwind-protect
            (progn
              (setf descriptor
-                   (sb-posix:open (namestring target) sb-posix:o-rdonly))
+                   (sb-posix:open (%native-file-namestring target) sb-posix:o-rdonly))
              (%apply-copied-metadata-to-descriptor metadata descriptor))
         (when descriptor
           (sb-posix:close descriptor))))))

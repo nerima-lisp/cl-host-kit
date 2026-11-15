@@ -6,7 +6,7 @@
 (defun %directory-entry-names (directory)
   "Return DIRECTORY's entries, including dotfiles, in deterministic order."
   (%with-host-operation (:directory-entry-names directory)
-    (let ((stream (sb-posix:opendir (namestring directory))))
+    (let ((stream (sb-posix:opendir (%native-file-namestring directory))))
       (unwind-protect
            (sort (loop for entry = (sb-posix:readdir stream)
                        while (and entry (not (sb-alien:null-alien entry)))
@@ -43,7 +43,7 @@ HOST-OPERATION-FAILED."
        (%with-host-operation (:directory-empty-p directory)
          (unless (eq (file-metadata-kind (file-metadata directory)) :directory)
            (error "~S does not denote a directory" directory))
-         (let ((stream (sb-posix:opendir (namestring directory))))
+         (let ((stream (sb-posix:opendir (%native-file-namestring directory))))
            (unwind-protect
                 (loop for entry = (sb-posix:readdir stream)
                       while (and entry (not (sb-alien:null-alien entry)))
@@ -191,13 +191,13 @@ missing, denotes a directory, or names another special filesystem entry."
 HOST-OPERATION-FAILED."
   (let ((pathname (ensure-directory-pathname pathspec)))
     (%with-host-operation (:delete-empty-directory pathname)
-      (sb-posix:rmdir (namestring pathname)))
+      (sb-posix:rmdir (%native-file-namestring pathname)))
     (values)))
 
 (progn
   (defun %final-entry-namestring (pathname)
     "Return the final entry spelling of PATHNAME without a resolving trailing slash."
-    (let ((namestring (namestring pathname)))
+    (let ((namestring (%native-file-namestring pathname)))
       (if (and (> (length namestring) 1)
                (char= (char namestring (1- (length namestring))) #\/))
           (subseq namestring 0 (1- (length namestring)))
@@ -207,7 +207,7 @@ HOST-OPERATION-FAILED."
     "Return true when the final directory entry of PATHNAME is a symbolic link."
     (sb-posix:s-islnk
      (sb-posix:stat-mode
-      (sb-posix:lstat (%final-entry-namestring pathname)))))
+      (sb-posix:lstat (%native-file-namestring (%final-entry-namestring pathname))))))
 
   (defun delete-path (pathspec &key (recursive nil) (if-does-not-exist :error))
     "Delete PATHSPEC without following a final symbolic link.
@@ -220,7 +220,7 @@ as links. IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE."
       (%with-host-operation (:delete-path pathname)
         (handler-case
             (let ((mode (sb-posix:stat-mode
-                         (sb-posix:lstat entry-namestring))))
+                         (sb-posix:lstat (%native-file-namestring entry-namestring)))))
               (if (sb-posix:s-isdir mode)
                   (if recursive
                       (progn
@@ -228,10 +228,10 @@ as links. IF-DOES-NOT-EXIST is :ERROR (the default) or :IGNORE."
                                                :if-does-not-exist :error)
                         t)
                       (progn
-                        (sb-posix:rmdir entry-namestring)
+                        (sb-posix:rmdir (%native-file-namestring entry-namestring))
                         t))
                   (progn
-                    (sb-posix:unlink entry-namestring)
+                    (sb-posix:unlink (%native-file-namestring entry-namestring))
                     t)))
           (sb-posix:syscall-error (condition)
             (unless (and (eq if-does-not-exist :ignore)
@@ -275,8 +275,8 @@ rejected."
 
 (defun %rename-path-overwriting-target (source target)
   "Atomically rename SOURCE to TARGET, replacing TARGET when it exists."
-  (sb-posix:rename (%final-entry-namestring source)
-                   (%final-entry-namestring target)))
+  (sb-posix:rename (%native-file-namestring (%final-entry-namestring source))
+                   (%native-file-namestring (%final-entry-namestring target))))
 
 (progn
   (defun %cross-device-error-p (condition)
@@ -345,7 +345,7 @@ HOST-OPERATION-FAILED. Return the created or existing directory's truename."
     (%with-host-operation
      (:create-directory pathname)
      (handler-case
-         (sb-posix:mkdir (namestring pathname) mode)
+         (sb-posix:mkdir (%native-file-namestring pathname) mode)
        (sb-posix:syscall-error (condition)
                                (let ((existing (directory-exists-p pathname)))
                                  (if (and (eq if-exists :ignore)

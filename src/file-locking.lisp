@@ -278,7 +278,7 @@ scope is rejected immediately; use the original stream for scoped nesting."
 
 (defun %held-file-lock-for-path (pathname)
   (handler-case
-      (let ((stat (sb-posix:stat (sb-ext:native-namestring pathname))))
+      (let ((stat (sb-posix:stat (%native-file-namestring pathname))))
         (%find-held-advisory-file-lock
          (cons (sb-posix:stat-dev stat) (sb-posix:stat-ino stat))))
     (sb-posix:syscall-error (condition)
@@ -303,7 +303,7 @@ POSIX locks are process-owned: do not open or close other streams for this inode
   (let ((fd nil) (stream nil) (retained nil))
     (unwind-protect
          (progn
-           (setf fd (sb-posix:open (sb-ext:native-namestring pathname)
+           (setf fd (sb-posix:open (%native-file-namestring pathname)
                                   (logior sb-posix:o-rdwr sb-posix:o-creat) mode)
                  stream (sb-sys:make-fd-stream fd :input t :output t
                                               :element-type 'character
