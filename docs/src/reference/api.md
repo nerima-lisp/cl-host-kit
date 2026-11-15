@@ -21,7 +21,7 @@ single source of truth for what is exported).
   `process-timeout-seconds`, and `process-timeout-result`; the result contains
   the captured terminal data.
 - **`file-lock-timeout`** — Signalled when an advisory lock cannot be acquired
-  within an explicit `call-with-advisory-file-lock` timeout. Its
+  within an explicit `call-with-advisory-file-lock` or `call-with-file-lock` timeout. Its
   `file-lock-timeout-seconds` accessor returns the requested timeout.
 - **`process-exit-error`** (`program` `arguments` `exit-code` `signal`
   `expected-exit-codes` `result`) — Signalled by `ensure-program-success` when
@@ -522,7 +522,8 @@ locks.
   for the same file must use the original stream; do not open or close another
   stream for the file while a lock scope is active. A retained lock for the inode rejects a
   scoped acquisition with `host-operation-failed`, regardless of `wait` or
-  `timeout`.
+  `timeout`. Caller-supplied streams are neither flushed nor closed by the
+  scoped lock API.
   Repositioning `stream`
   in `thunk` does not change the locked range; the stream retains its final
   callback position after the lock is released.
@@ -533,12 +534,21 @@ locks.
   calls `thunk` with the open stream, then ends its ownership on every exit path.
   The callback must not reuse the stream after returning. If another local
   shared scope remains, the owned descriptor closes when the last shared owner
-  exits. Options have the same
-  semantics as `call-with-advisory-file-lock` for locks held by other processes.
-  A lock already registered in this process signals `host-operation-failed`
-  before opening a descriptor, even with `wait` true or `mode :shared`. Each
-  call owns a descriptor; nested locking must use `call-with-advisory-file-lock`
-  with the original stream.
+  exits. Pending output is handled when the last local shared owner exits:
+  normal completion of the opening callback flushes it before unlocking;
+  abnormal completion discards it when the owned stream closes. If a callback's
+  error or nonlocal exit is already unwinding, cleanup failures do not replace it.
+  Options have the same lock-contention semantics as
+  `call-with-advisory-file-lock`. If another thread has a scoped reservation,
+  `wait` true waits before opening a descriptor, using one `timeout` deadline
+  for both local and other-process lock contention. With `wait` false, the
+  request fails immediately with `host-operation-failed`; expiry signals
+  `file-lock-timeout`. This pathname waiting also applies to shared requests;
+  already-open supplied streams can share a lock without opening another fd.
+  A retained reservation or a pathname scope already held by the same thread
+  signals `host-operation-failed` immediately, regardless of `wait` or `timeout`.
+  Each call owns a descriptor; nested locking must use
+  `call-with-advisory-file-lock` with the original stream.
 - **`(with-file-lock (stream pathspec &key (wait t) timeout (mode :exclusive)) &body body)`** — Lexically
   scoped macro form for `call-with-file-lock`; binds the opened, locked stream in `body` and preserves all
   body values.
@@ -574,6 +584,13 @@ locks.
   lock's range. Querying or rejecting a local acquisition leaves the
   registered lock intact. The result may become
   stale immediately; use `try-acquire-file-lock` to acquire a lock.
+
+Lock registry changes, pathname `stat`/`open`, and owned-stream flush/close
+use one process-wide mutex. A blocking filesystem call, such as access to NFS
+or a FIFO, can therefore delay other kit lock operations even on different
+paths. `wait` and `timeout` control lock contention; they do not bound those
+filesystem calls. Waiting for another thread's scoped reservation releases the
+mutex between checks. User callbacks run outside the mutex.
 
 ## Strings
 

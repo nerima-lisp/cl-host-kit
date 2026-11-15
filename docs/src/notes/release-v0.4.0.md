@@ -11,9 +11,23 @@ Release flushes metadata before unlocking and closing the stream, leaving the
 lock file on disk. If I/O fails, release still attempts cleanup and reports the
 first error to the caller.
 
+Pathname-scoped locks retain their waiting behavior for another thread's
+scoped reservation: `wait` true waits before opening a descriptor, with one
+deadline across local and other-process lock contention. `wait` false rejects
+the request immediately, and timeout expiry signals `file-lock-timeout`.
+Retained reservations and same-thread pathname nesting are rejected immediately.
+If a shared borrower outlives the opening callback, output handling and owned
+descriptor closure wait for the final local owner. Normal completion of the
+opening callback flushes pending output before unlocking; abnormal completion
+discards it when the stream closes. Cleanup failures do not replace an error or
+nonlocal exit already unwinding from a callback.
+
 POSIX locks remain process-owned. Callers must not open or close another stream
 for the same inode while a lock is held. Locks are advisory, and reliable
-coordination on NFS is not guaranteed.
+coordination on NFS is not guaranteed. Registry and owned-descriptor operations
+use a process-wide mutex, so blocking `stat`, `open`, flush, or close calls on
+NFS or FIFOs can delay unrelated kit lock operations. Lock timeouts do not bound
+those filesystem calls.
 
 Atomic output and whole-file writers accept `mode` for newly created targets.
 Permissions are applied through the temporary file descriptor before rename.
