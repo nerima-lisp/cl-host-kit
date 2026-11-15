@@ -517,5 +517,196 @@
         (signals host-operation-failed (try-acquire-file-lock target))))))
 
 
+(defun %lock-test-wait (semaphore)
+  (unless (sb-thread:wait-on-semaphore semaphore :timeout 2)
+    (error "Lock test synchronization did not complete.")))
+
+(defun %lock-retirement-handoff (target owned-pathname-p)
+  (with-open-file (first target :direction :io :if-exists :overwrite)
+    (with-open-file (second target :direction :io :if-exists :overwrite)
+      (let ((first-body (sb-thread:make-semaphore :count 0))
+            (return-first (sb-thread:make-semaphore :count 0))
+            (retiring (sb-thread:make-semaphore :count 0))
+            (finish-retiring (sb-thread:make-semaphore :count 0))
+            (second-attempted (sb-thread:make-semaphore :count 0))
+            (second-acquired (sb-thread:make-semaphore :count 0))
+            (return-second (sb-thread:make-semaphore :count 0))
+            (original (symbol-function 'host-kit::%release-advisory-file-lock))
+            (old-thread nil) (new-thread nil)
+            (old-error nil) (new-error nil)
+            (protected nil) (new-live nil))
+        (labels ((old-body (stream)
+                   (declare (ignore stream))
+                   (sb-thread:signal-semaphore first-body)
+                   (%lock-test-wait return-first))
+                 (new-body (stream)
+                   (declare (ignore stream))
+                   (setf new-live t)
+                   (sb-thread:signal-semaphore second-acquired)
+                   (unwind-protect (%lock-test-wait return-second)
+                     (setf new-live nil))))
+          (unwind-protect
+               (progn
+                 (setf (symbol-function 'host-kit::%release-advisory-file-lock)
+                       (lambda (fd start)
+                         (if (eq sb-thread:*current-thread* old-thread)
+                             (progn
+                               (when owned-pathname-p (funcall original fd start))
+                               (setf protected
+                                     (sb-thread:holding-mutex-p host-kit::*advisory-file-locks-lock*))
+                               (sb-thread:signal-semaphore retiring)
+                               (%lock-test-wait finish-retiring)
+                               (unless owned-pathname-p (funcall original fd start)))
+                             (funcall original fd start))))
+                 (setf old-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (handler-case
+                              (if owned-pathname-p
+                                  (call-with-file-lock #'old-body target)
+                                  (call-with-advisory-file-lock #'old-body first))
+                            (error (condition) (setf old-error condition))))))
+                 (%lock-test-wait first-body)
+                 (sb-thread:signal-semaphore return-first)
+                 (%lock-test-wait retiring)
+                 (setf new-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          (sb-thread:signal-semaphore second-attempted)
+                          (handler-case
+                              (if owned-pathname-p
+                                  (let ((lock (try-acquire-file-lock target)))
+                                    (unwind-protect (new-body (file-lock-stream lock))
+                                      (release-file-lock lock)))
+                                  (call-with-advisory-file-lock #'new-body second :wait nil))
+                            (error (condition)
+                              (setf new-error condition)
+                              (sb-thread:signal-semaphore second-acquired))))))
+                 (%lock-test-wait second-attempted)
+                 ;; The protected implementation releases the mutex before the
+                 ;; next owner can enter. The old implementation admits it here.
+                 (when protected (sb-thread:signal-semaphore finish-retiring))
+                 (%lock-test-wait second-acquired)
+                 (let ((before (%child-lock-exit-code target)))
+                   (unless protected (sb-thread:signal-semaphore finish-retiring))
+                   (sb-thread:join-thread old-thread)
+                   (list (not (null protected)) before new-live
+                         (%child-lock-exit-code target)
+                         (null old-error) (null new-error))))
+            (setf (symbol-function 'host-kit::%release-advisory-file-lock) original)
+            (sb-thread:signal-semaphore return-first)
+            (sb-thread:signal-semaphore finish-retiring)
+            (sb-thread:signal-semaphore return-second)
+            (dolist (thread (list old-thread new-thread))
+              (when thread (sb-thread:join-thread thread)))))))))
+
+(cl-weave:describe-sequential "retained and scoped lock interoperability"
+  (it "rejects a pathname scope before opening a descriptor for a retained inode"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "mixed.lock" scratch))
+             (lock (try-acquire-file-lock target)))
+        (unwind-protect
+             (progn
+               (signals host-operation-failed
+                 (call-with-file-lock #'identity target :wait nil))
+               (expect (%child-lock-exit-code target) :to-equal 1))
+          (release-file-lock lock)))))
+  (it-each ((:pathname) (:stream))
+      "rejects the default waiting ~S scope instead of waiting on its retained lock"
+      (kind)
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "default-wait.lock" scratch))
+             (lock (try-acquire-file-lock target))
+             (attempted (sb-thread:make-semaphore :count 0))
+             (worker nil))
+        (unwind-protect
+             (progn
+               (setf worker
+                     (sb-thread:make-thread
+                      (lambda ()
+                        (sb-thread:signal-semaphore attempted)
+                        (handler-case
+                            (if (eq kind :pathname)
+                                (call-with-file-lock #'identity target)
+                                (call-with-advisory-file-lock #'identity (file-lock-stream lock)))
+                          (host-operation-failed () :rejected)))))
+               (%lock-test-wait attempted)
+               (expect (sb-thread:join-thread worker :timeout 1 :default :blocked)
+                       :to-equal :rejected))
+          (when (and worker (sb-thread:thread-alive-p worker))
+            (sb-thread:terminate-thread worker)
+            (sb-thread:join-thread worker :default nil))
+          (release-file-lock lock)))))
+  (it "keeps a strong registry reference to its owned stream until release"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "owned.lock" scratch))
+             (lock (try-acquire-file-lock target))
+             (reservation (host-kit::file-lock-reservation lock)))
+        (unwind-protect
+             (progn
+               (expect (host-kit::%held-advisory-file-lock-stream reservation)
+                       :to-be (file-lock-stream lock))
+               (sb-ext:gc :full t)
+               (expect (%child-lock-exit-code target) :to-equal 1)
+               (release-file-lock lock)
+               (expect (host-kit::%held-advisory-file-lock-stream reservation) :to-be nil)
+               (expect (%child-lock-exit-code target) :to-equal 0))
+          (release-file-lock lock)))))
+  (it "keeps the next supplied-stream owner locked after the old scope retires"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "supplied-handoff.lock" scratch)))
+        (write-file-string "" target)
+        (expect (%lock-retirement-handoff target nil) :to-equal '(t 1 t 1 t t)))))
+  (it "closes an owned pathname descriptor before another retained owner enters"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "owned-handoff.lock" scratch)))
+        (write-file-string "" target)
+        (expect (%lock-retirement-handoff target t) :to-equal '(t 1 t 1 t t)))))
+  (it "unlocks when the last shared owner outlives the creating scope"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "shared-retirement.lock" scratch)))
+        (write-file-string "" target)
+        (with-open-file (first target :direction :io :if-exists :overwrite)
+          (with-open-file (second target :direction :io :if-exists :overwrite)
+            (let ((first-ready (sb-thread:make-semaphore :count 0))
+                  (second-ready (sb-thread:make-semaphore :count 0))
+                  (return-first (sb-thread:make-semaphore :count 0))
+                  (return-second (sb-thread:make-semaphore :count 0))
+                  (old-thread nil) (new-thread nil))
+              (unwind-protect
+                   (progn
+                     (setf old-thread
+                           (sb-thread:make-thread
+                            (lambda ()
+                              (call-with-advisory-file-lock
+                               (lambda (stream)
+                                 (declare (ignore stream))
+                                 (sb-thread:signal-semaphore first-ready)
+                                 (%lock-test-wait return-first))
+                               first :mode :shared))))
+                     (%lock-test-wait first-ready)
+                     (setf new-thread
+                           (sb-thread:make-thread
+                            (lambda ()
+                              (call-with-advisory-file-lock
+                               (lambda (stream)
+                                 (declare (ignore stream))
+                                 (sb-thread:signal-semaphore second-ready)
+                                 (%lock-test-wait return-second))
+                               second :mode :shared))))
+                     (%lock-test-wait second-ready)
+                     (expect (%child-lock-exit-code target) :to-equal 1)
+                     (sb-thread:signal-semaphore return-first)
+                     (sb-thread:join-thread old-thread)
+                     (expect (%child-lock-exit-code target) :to-equal 1)
+                     (sb-thread:signal-semaphore return-second)
+                     (sb-thread:join-thread new-thread)
+                     (expect (%child-lock-exit-code target) :to-equal 0))
+                (sb-thread:signal-semaphore return-first)
+                (sb-thread:signal-semaphore return-second)
+                (dolist (thread (list old-thread new-thread))
+                  (when thread (sb-thread:join-thread thread)))))))))))
+
+
 
 

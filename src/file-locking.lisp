@@ -15,7 +15,8 @@
   fd
   lock-start
   mode
-  owners)
+  owners
+  stream)
 
 (defvar *held-advisory-file-locks* nil
   "Process-wide file locks reserved by active HOST-KIT lock scopes.")
@@ -45,36 +46,33 @@
           :test (function equal)))
 
   (defun %advisory-file-lock-reservation-status
-      (identity fd lock-start mode wait deadline)
-    (let ((owner sb-thread:*current-thread*))
-      (sb-thread:with-mutex (*advisory-file-locks-lock*)
-        (let ((held-lock (%find-held-advisory-file-lock identity)))
-          (cond
-            ((null held-lock)
-             (let ((new-lock
-                     (%make-held-advisory-file-lock
-                      :identity identity :fd fd :lock-start lock-start
-                      :mode mode :owners (list owner))))
-               (push new-lock *held-advisory-file-locks*)
-               (values :acquired new-lock)))
-            ((and (member owner (%held-advisory-file-lock-owners held-lock)
-                          :test (function eq))
-                  (= fd (%held-advisory-file-lock-fd held-lock)))
-             (values :nested held-lock))
-            ((and (eq mode :shared)
-                  (eq (%held-advisory-file-lock-mode held-lock) :shared))
-             (push owner (%held-advisory-file-lock-owners held-lock))
-             (values :shared held-lock))
-            ((member owner (%held-advisory-file-lock-owners held-lock)
-                     :test (function eq))
-             (values :different-stream held-lock))
-            ((not wait)
-             (values :unavailable held-lock))
-            ((and deadline
-                  (>= (get-internal-real-time) deadline))
-             (values :timed-out held-lock))
-            (t
-             (values :wait held-lock)))))))
+    (identity fd lock-start mode wait deadline)
+  (let ((owner sb-thread:*current-thread*))
+    (sb-thread:with-mutex (*advisory-file-locks-lock*)
+      (let ((held-lock (%find-held-advisory-file-lock identity)))
+        (cond
+          ((null held-lock)
+           (let ((new-lock
+                   (%make-held-advisory-file-lock
+                    :identity identity :fd fd :lock-start lock-start
+                    :mode mode :owners (list owner))))
+             (push new-lock *held-advisory-file-locks*)
+             (values :acquired new-lock)))
+          ((member :retained (%held-advisory-file-lock-owners held-lock))
+           (error "A retained advisory lock for this file is already held in this process."))
+          ((and (member owner (%held-advisory-file-lock-owners held-lock) :test #'eq)
+                (= fd (%held-advisory-file-lock-fd held-lock)))
+           (values :nested held-lock))
+          ((and (eq mode :shared)
+                (eq (%held-advisory-file-lock-mode held-lock) :shared))
+           (push owner (%held-advisory-file-lock-owners held-lock))
+           (values :shared held-lock))
+          ((member owner (%held-advisory-file-lock-owners held-lock) :test #'eq)
+           (values :different-stream held-lock))
+          ((not wait) (values :unavailable held-lock))
+          ((and deadline (>= (get-internal-real-time) deadline))
+           (values :timed-out held-lock))
+          (t (values :wait held-lock)))))))
 
   (defun %reserve-advisory-file-lock (identity fd lock-start mode wait timeout)
     "Reserve IDENTITY for this thread and return its acquisition status."
@@ -95,22 +93,18 @@
             (:wait
              (sleep 0.01d0))))))))
 
-(defun %release-advisory-file-lock-reservation (identity fd)
+(defun %release-advisory-file-lock-reservation (identity fd &optional (lock-acquired-p t))
   (let ((owner sb-thread:*current-thread*))
     (sb-thread:with-mutex (*advisory-file-locks-lock*)
-      (let ((held-lock
-              (find identity *held-advisory-file-locks*
-                    :key #'%held-advisory-file-lock-identity
-                    :test #'equal)))
-    (when (and held-lock
-               (or (= fd (%held-advisory-file-lock-fd held-lock))
-                   (eq (%held-advisory-file-lock-mode held-lock) :shared)))
+      (let ((held-lock (%find-held-advisory-file-lock identity)))
+        (when (and held-lock
+                   (or (= fd (%held-advisory-file-lock-fd held-lock))
+                       (eq (%held-advisory-file-lock-mode held-lock) :shared)))
           (setf (%held-advisory-file-lock-owners held-lock)
                 (delete owner (%held-advisory-file-lock-owners held-lock)
                         :test #'eq :count 1))
           (unless (%held-advisory-file-lock-owners held-lock)
-            (setf *held-advisory-file-locks*
-                  (delete held-lock *held-advisory-file-locks*))
+            (%retire-advisory-file-lock held-lock lock-acquired-p)
             t))))))
 
 (defun %remaining-advisory-file-lock-timeout (deadline)
@@ -166,18 +160,17 @@
       (%release-advisory-file-lock-reservation identity fd)))
 
   (defun %call-with-acquired-advisory-file-lock
-      (thunk stream identity fd lock-start wait deadline timeout mode held-lock)
-    (let ((lock-acquired-p nil))
-      (unwind-protect
-           (progn
-             (%acquire-advisory-file-lock
-              fd wait (%remaining-advisory-file-lock-timeout deadline)
-              timeout mode lock-start)
-             (setf lock-acquired-p t)
-             (funcall thunk stream))
-        (when (and (%release-advisory-file-lock-reservation identity fd) lock-acquired-p) (%release-advisory-file-lock
-                  (%held-advisory-file-lock-fd held-lock)
-                  (%held-advisory-file-lock-lock-start held-lock))))))
+    (thunk stream identity fd lock-start wait deadline timeout mode held-lock)
+  (let ((lock-acquired-p nil))
+    (unwind-protect
+         (progn
+           (%acquire-advisory-file-lock
+            fd wait (%remaining-advisory-file-lock-timeout deadline)
+            timeout mode lock-start)
+           (setf lock-acquired-p t)
+           (funcall thunk stream))
+      (%release-advisory-file-lock-reservation
+       identity (%held-advisory-file-lock-fd held-lock) lock-acquired-p))))
 
   (defun %call-with-reserved-advisory-file-lock
       (thunk stream identity fd lock-start mode wait timeout status deadline held-lock)
@@ -237,28 +230,23 @@ binding, so this scope does not fit DEFINE-WITH-MACRO's fresh-binding shape."
       :mode ,mode))
 
   (defun call-with-file-lock (thunk pathspec
-                              &key (wait t) timeout (mode :exclusive))
-    "Call THUNK while holding a MODE advisory lock for PATHSPEC.
-
+                            &key (wait t) timeout (mode :exclusive))
+  "Call THUNK while holding a MODE advisory lock for PATHSPEC.
 PATHSPEC is opened for non-destructive I/O, creating an absent regular file.
 The lock covers the byte range from zero through EOF. THUNK receives the open
-stream, and its values are preserved. The lock is released and the stream is
-closed on every exit path. Each call owns a descriptor, so use
-CALL-WITH-ADVISORY-FILE-LOCK with a supplied stream for nested locking."
-    (check-type thunk function)
-    (check-type wait boolean)
-    (check-type timeout (or null (real 0 *)))
-    (check-type mode (member :exclusive :shared))
-    (let ((pathname (ensure-absolute-pathname pathspec)))
-      (%with-host-operation (:call-with-file-lock pathname)
-        (with-open-file (stream pathname
-                                :direction :io
-                                :if-does-not-exist :create
-                                :if-exists :overwrite)
-          (call-with-advisory-file-lock thunk stream
-                                        :wait wait
-                                        :timeout timeout
-                                        :mode mode)))))
+stream, and its values are preserved. The owned stream closes on every exit.
+A locally registered inode is rejected before opening another descriptor;
+use the original supplied stream for supported scoped nesting."
+  (check-type thunk function)
+  (check-type wait boolean)
+  (check-type timeout (or null (real 0 *)))
+  (check-type mode (member :exclusive :shared))
+  (let ((pathname (ensure-absolute-pathname pathspec)))
+    (%with-host-operation (:call-with-file-lock pathname)
+      (multiple-value-bind (stream identity fd deadline held-lock)
+          (%open-owned-advisory-file-lock pathname timeout mode)
+        (%call-with-acquired-advisory-file-lock
+         thunk stream identity fd 0 wait deadline timeout mode held-lock)))))
 
   (define-with-macro with-file-lock (stream) call-with-file-lock))
 
@@ -311,7 +299,8 @@ POSIX locks are process-owned: do not open or close other streams for this inode
                    (error condition))))
            (let* ((reservation (%make-held-advisory-file-lock
                                 :identity (%advisory-file-lock-identity fd)
-                                :fd fd :lock-start 0 :mode :exclusive))
+                                :fd fd :lock-start 0 :mode :exclusive
+                                :stream stream))
                   (lock (%make-file-lock stream reservation)))
              (setf (%held-advisory-file-lock-owners reservation) (list :retained))
              (push reservation *held-advisory-file-locks*)
@@ -323,29 +312,15 @@ POSIX locks are process-owned: do not open or close other streams for this inode
 (defun release-file-lock (lock)
   "Flush metadata while locked, then release LOCK and close its owned stream.
 Return NIL if already released. Cleanup retires the reservation even on I/O
-failure, and the first I/O error is propagated."
+failure, and the first I/O error is propagated. The lock file remains on disk."
   (check-type lock file-lock)
   (%with-host-operation (:release-file-lock lock)
     (sb-thread:with-mutex (*advisory-file-locks-lock*)
       (unless (file-lock-released-p lock)
-        (let ((reservation (file-lock-reservation lock))
-              (failure nil))
-          (unwind-protect
-               (handler-case (finish-output (file-lock-stream lock))
-                 (error (condition) (setf failure condition)))
-            (unwind-protect
-                 (handler-case
-                     (%release-advisory-file-lock
-                      (%held-advisory-file-lock-fd reservation) 0)
-                   (error (condition) (unless failure (setf failure condition))))
-              (unwind-protect
-                   (handler-case (close (file-lock-stream lock) :abort t)
-                     (error (condition) (unless failure (setf failure condition))))
-                (setf *held-advisory-file-locks*
-                      (delete reservation *held-advisory-file-locks*)
-                      (file-lock-released-p lock) t)
-                (when failure (error failure)))))
-          t)))))
+        (unwind-protect
+             (%retire-advisory-file-lock (file-lock-reservation lock) t)
+          (setf (file-lock-released-p lock) t))
+        t))))
 
 (defun file-lock-held-by-other-process-p (pathspec)
   "Report a conflicting other-process lock without acquiring or retaining one.
@@ -366,5 +341,52 @@ immediately; TRY-ACQUIRE-FILE-LOCK is the acquisition authority."
                 (with-open-file (stream pathname :direction :input :if-does-not-exist nil)
                   (when stream
                     (locked-p (sb-sys:fd-stream-fd stream)))))))))))
+
+
+(defun %open-owned-advisory-file-lock (pathname timeout mode)
+  (sb-thread:with-mutex (*advisory-file-locks-lock*)
+    ;; Check and reserve without admitting another owner between the open and
+    ;; reservation. Closing a rejected second descriptor would drop its lock.
+    (when (%held-file-lock-for-path pathname)
+      (error "An advisory lock for this file is already held in this process."))
+    (let ((stream (open pathname :direction :io :if-does-not-exist :create
+                                :if-exists :overwrite))
+          (reserved nil))
+      (unwind-protect
+           (let* ((fd (%advisory-file-lock-fd stream))
+                  (identity (%advisory-file-lock-identity fd))
+                  (held-lock (%make-held-advisory-file-lock
+                              :identity identity :fd fd :lock-start 0 :mode mode
+                              :owners (list sb-thread:*current-thread*)
+                              :stream stream)))
+             (push held-lock *held-advisory-file-locks*)
+             (setf reserved t)
+             (values stream identity fd (%advisory-file-lock-deadline timeout) held-lock))
+        (unless reserved (close stream :abort t))))))
+
+(defun %retire-advisory-file-lock (held-lock lock-acquired-p)
+  "Retire HELD-LOCK while the caller holds the registry mutex."
+  (let ((stream (%held-advisory-file-lock-stream held-lock))
+        (failure nil))
+    (unwind-protect
+         (when stream
+           (handler-case (finish-output stream)
+             (error (condition) (setf failure condition))))
+      (unwind-protect
+           (when lock-acquired-p
+             (handler-case
+                 (%release-advisory-file-lock
+                  (%held-advisory-file-lock-fd held-lock)
+                  (%held-advisory-file-lock-lock-start held-lock))
+               (error (condition) (unless failure (setf failure condition)))))
+        (unwind-protect
+             (when stream
+               (handler-case (close stream :abort t)
+                 (error (condition) (unless failure (setf failure condition)))))
+          ;; Keep owned descriptors reachable and reserved until their close.
+          (setf (%held-advisory-file-lock-stream held-lock) nil
+                (%held-advisory-file-lock-owners held-lock) nil
+                *held-advisory-file-locks* (delete held-lock *held-advisory-file-locks*))
+          (when failure (error failure)))))))
 
 
