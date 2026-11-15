@@ -7,13 +7,16 @@
 (defun temporary-directory ()
   "Return the system temporary directory as an absolute directory pathname,
 honoring a non-empty absolute TMPDIR and falling back to /tmp/ otherwise."
-  (let ((configured-directory (getenv "TMPDIR")))
+  (let* ((configured-directory (getenv "TMPDIR"))
+         (configured-pathname
+           (and configured-directory
+                (plusp (length configured-directory))
+                (sb-ext:parse-native-namestring configured-directory))))
     (ensure-absolute-pathname
      (ensure-directory-pathname
-      (if (and configured-directory
-               (plusp (length configured-directory))
-               (absolute-pathname-p configured-directory))
-          configured-directory
+      (if (and configured-pathname
+               (absolute-pathname-p configured-pathname))
+          configured-pathname
           "/tmp/")))))
 
 (defun %validate-temporary-name-fragment (fragment argument)

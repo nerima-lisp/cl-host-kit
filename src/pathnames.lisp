@@ -7,7 +7,7 @@
 (defun %native-file-namestring (pathspec)
   ;; Native strings, including relative symlink targets, must stay verbatim.
   (etypecase pathspec
-    (pathname (sb-ext:native-namestring pathspec))
+    (pathname (sb-ext:native-namestring (translate-logical-pathname pathspec)))
     (string pathspec)))
 
 (defun absolute-pathname-p (pathspec)

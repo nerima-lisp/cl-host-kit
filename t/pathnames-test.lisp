@@ -257,3 +257,21 @@
   (it "preserves the error for the existing logical pathname form"
     (signals sb-kernel::namestring-parse-error
       (ensure-directory-pathname (logical-pathname "SYS:FOO;BAR.LISP.NEWEST")))))
+
+(cl-weave:describe-sequential "native OS pathname logical translation"
+  (it "converts a logical pathname to the native name of its physical file"
+    (with-scratch-directory (scratch)
+      (let* ((host (symbol-name (gensym "HOST-KIT-NATIVE-TEST-")))
+             (previous nil)
+             (physical (merge-pathnames "entry.txt" scratch)))
+        (write-file-string "payload" physical)
+        (unwind-protect
+             (progn
+               (setf (logical-pathname-translations host)
+                     (list (list "**;*.*.*" (merge-pathnames "**/*.*" scratch))))
+               (let ((native (host-kit::%native-file-namestring
+                              (logical-pathname (format nil "~A:ENTRY.TXT" host)))))
+                 (expect native :to-equal (sb-ext:native-namestring physical))
+                 (expect (read-file-string native) :to-equal "payload")
+                 (expect (same-file-p native physical) :to-be t)))
+          (setf (logical-pathname-translations host) previous))))))

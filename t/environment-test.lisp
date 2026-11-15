@@ -470,3 +470,21 @@
             :error
             nil)))
       (expect (sb-ext:process-exit-code process) :to-equal 23))))
+
+(cl-weave:describe-sequential "native OS pathname passwd home"
+  (it "parses the native home directory returned by a passwd record accessor"
+    (with-scratch-directory (scratch)
+      (let ((directory (merge-pathnames
+                        (sb-ext:parse-native-namestring "passwd[record]/") scratch))
+            (reader-used nil))
+        (create-directory directory)
+        (with-function-redefinition
+            ('sb-posix:passwd-dir
+             (lambda (entry)
+               (setf reader-used (typep entry 'sb-posix:passwd))
+               (sb-ext:native-namestring directory)))
+          (let ((actual (host-kit::%passwd-home-directory)))
+            (expect reader-used :to-be t)
+            (expect actual :to-equal directory)
+            (expect (wild-pathname-p actual) :to-be nil)
+            (expect (file-metadata-kind (file-metadata actual)) :to-equal :directory)))))))

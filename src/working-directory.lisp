@@ -21,7 +21,7 @@
 (defun getcwd ()
   "Return the current working directory as a directory-form pathname."
   (%with-host-operation (:getcwd nil)
-    (ensure-directory-pathname (sb-posix:getcwd))))
+    (ensure-directory-pathname (sb-ext:parse-native-namestring (sb-posix:getcwd)))))
 
 (defun chdir (pathspec)
   "Change the current working directory to PATHSPEC (a pathname designator)."
