@@ -790,8 +790,12 @@
                           :to-equal :waiting)
                   (expect (%child-lock-exit-code target) :to-equal 1))
                 target)
-               (expect (sb-thread:join-thread worker) :to-equal :acquired))
-          (when worker (sb-thread:join-thread worker))))))
+               (expect (sb-thread:join-thread worker :timeout 2 :default :blocked)
+                       :to-equal :acquired))
+          (when worker
+            (when (sb-thread:thread-alive-p worker)
+              (sb-thread:terminate-thread worker))
+            (sb-thread:join-thread worker :timeout 2 :default nil))))))
   (it-each ((nil nil :rejected) (t 0.05 :timed-out))
       "keeps the current owner's OS lock after wait ~S timeout ~S rejection"
       (wait timeout expected)
@@ -808,7 +812,8 @@
                         (file-lock-timeout (condition)
                           (values :timed-out (file-lock-timeout-seconds condition)))
                         (host-operation-failed () :rejected))))))
-             (multiple-value-bind (outcome seconds) (sb-thread:join-thread worker)
+             (multiple-value-bind (outcome seconds)
+                 (sb-thread:join-thread worker :timeout 2 :default :blocked)
                (expect outcome :to-equal expected)
                (when timeout (expect seconds :to-equal timeout)))
              (expect (%child-lock-exit-code target) :to-equal 1)))
@@ -880,6 +885,91 @@
                (funcall original fd start)
                (error "final cleanup failed")))
           (%owned-shared-scope-outcome target nil t))))))
+
+
+(cl-weave:describe-sequential "native lock paths and normal cleanup failures"
+  (it "locks the literal native b*c.lock inode without opening an escaped neighbor"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames (sb-ext:parse-native-namestring "b*c.lock") scratch))
+             (lock nil))
+        (with-open-file (stream target :direction :output :if-exists :supersede)
+          (write-string "metadata" stream))
+        (unwind-protect
+             (progn
+               (setf lock (try-acquire-file-lock target))
+               (expect (%child-lock-exit-code target) :to-equal 1)
+               (expect (file-lock-held-by-other-process-p target) :to-be nil)
+               (expect (%child-lock-exit-code target) :to-equal 1)
+               (signals host-operation-failed (try-acquire-file-lock target))
+               (expect (%child-lock-exit-code target) :to-equal 1))
+          (when lock (release-file-lock lock)))
+        (expect (%child-lock-exit-code target) :to-equal 0))))
+  (it "reports unlock failure after a normal acquired callback and closes its owned stream"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "normal-acquired.lock" scratch))
+             (original (symbol-function 'host-kit::%release-advisory-file-lock))
+             (failure (make-condition 'simple-error :format-control "unlock failed"))
+             (returned nil) (owned nil) (observed nil))
+        (with-function-redefinition
+            ('host-kit::%release-advisory-file-lock
+             (lambda (fd start) (funcall original fd start) (error failure)))
+          (handler-case
+              (call-with-file-lock
+               (lambda (stream) (setf owned stream returned t) :normal)
+               target)
+            (host-operation-failed (condition)
+              (setf observed (host-operation-failed-reason condition)))))
+        (expect returned :to-be t)
+        (expect observed :to-be failure)
+        (expect (open-stream-p owned) :to-be nil)
+        (expect (host-kit::%held-file-lock-for-path target) :to-be nil)
+        (expect (%child-lock-exit-code target) :to-equal 0))))
+  (it "reports unlock failure to a normal last shared borrower after retiring the owned stream"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "normal-shared.lock" scratch))
+             (original (symbol-function 'host-kit::%release-advisory-file-lock))
+             (failure (make-condition 'simple-error :format-control "shared unlock failed"))
+             (ready (sb-thread:make-semaphore :count 0))
+             (finish (sb-thread:make-semaphore :count 0))
+             (worker nil) (owned nil) (returned nil))
+        (write-file-string "metadata" target)
+        (with-open-file (borrowed target :direction :io :if-exists :overwrite)
+          (unwind-protect
+               (with-function-redefinition
+                   ('host-kit::%release-advisory-file-lock
+                    (lambda (fd start) (funcall original fd start) (error failure)))
+                 (call-with-file-lock
+                  (lambda (stream)
+                    (setf owned stream)
+                    (setf worker
+                          (sb-thread:make-thread
+                           (lambda ()
+                             (handler-case
+                                 (call-with-advisory-file-lock
+                                  (lambda (other)
+                                    (declare (ignore other))
+                                    (sb-thread:signal-semaphore ready)
+                                    (%lock-test-wait finish)
+                                    (setf returned t)
+                                    :normal)
+                                  borrowed :mode :shared)
+                               (host-operation-failed (condition)
+                                 (host-operation-failed-reason condition))))))
+                    (%lock-test-wait ready))
+                  target :mode :shared)
+                 (sb-thread:signal-semaphore finish)
+                 (expect (sb-thread:join-thread worker :timeout 2 :default :blocked)
+                         :to-be failure)
+                 (expect returned :to-be t)
+                 (expect (open-stream-p owned) :to-be nil)
+                 (expect (open-stream-p borrowed) :to-be t)
+                 (expect (host-kit::%held-file-lock-for-path target) :to-be nil)
+                 (expect (%child-lock-exit-code target) :to-equal 0))
+            (sb-thread:signal-semaphore finish)
+            (when worker
+              (when (sb-thread:thread-alive-p worker)
+                (sb-thread:terminate-thread worker))
+              (sb-thread:join-thread worker :timeout 2 :default nil))))))))
 
 
 

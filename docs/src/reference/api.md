@@ -536,8 +536,11 @@ locks.
   shared scope remains, the owned descriptor closes when the last shared owner
   exits. Pending output is handled when the last local shared owner exits:
   normal completion of the opening callback flushes it before unlocking;
-  abnormal completion discards it when the owned stream closes. If a callback's
-  error or nonlocal exit is already unwinding, cleanup failures do not replace it.
+  abnormal completion discards it when the owned stream closes. During unwinding
+  from a callback error, dynamic `throw`, or another nonlocal exit, cleanup still
+  runs and secondary cleanup errors are suppressed to preserve the original
+  error or control transfer. After a normal callback return, cleanup failures
+  are reported to the caller.
   Options have the same lock-contention semantics as
   `call-with-advisory-file-lock`. If another thread has a scoped reservation,
   `wait` true waits before opening a descriptor, using one `timeout` deadline

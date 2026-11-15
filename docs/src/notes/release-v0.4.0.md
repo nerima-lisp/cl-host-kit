@@ -22,6 +22,11 @@ opening callback flushes pending output before unlocking; abnormal completion
 discards it when the stream closes. Cleanup failures do not replace an error or
 nonlocal exit already unwinding from a callback.
 
+Pathname-based shared scopes in different threads are now serialized instead of
+coexisting, so `wait nil` requests that could previously succeed now signal
+`host-operation-failed`, because closing any descriptor for the inode releases
+the process's POSIX record locks.
+
 POSIX locks remain process-owned. Callers must not open or close another stream
 for the same inode while a lock is held. Locks are advisory, and reliable
 coordination on NFS is not guaranteed. Registry and owned-descriptor operations

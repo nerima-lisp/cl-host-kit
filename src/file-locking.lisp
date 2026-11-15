@@ -278,7 +278,7 @@ scope is rejected immediately; use the original stream for scoped nesting."
 
 (defun %held-file-lock-for-path (pathname)
   (handler-case
-      (let ((stat (sb-posix:stat (namestring pathname))))
+      (let ((stat (sb-posix:stat (sb-ext:native-namestring pathname))))
         (%find-held-advisory-file-lock
          (cons (sb-posix:stat-dev stat) (sb-posix:stat-ino stat))))
     (sb-posix:syscall-error (condition)
@@ -303,7 +303,7 @@ POSIX locks are process-owned: do not open or close other streams for this inode
   (let ((fd nil) (stream nil) (retained nil))
     (unwind-protect
          (progn
-           (setf fd (sb-posix:open (namestring pathname)
+           (setf fd (sb-posix:open (sb-ext:native-namestring pathname)
                                   (logior sb-posix:o-rdwr sb-posix:o-creat) mode)
                  stream (sb-sys:make-fd-stream fd :input t :output t
                                               :element-type 'character
@@ -380,11 +380,14 @@ immediately; TRY-ACQUIRE-FILE-LOCK is the acquisition authority."
                                          :identity identity :fd fd :lock-start 0 :mode mode
                                          :owners (list sb-thread:*current-thread*)
                                          :stream stream)))
-                      (push reservation *held-advisory-file-locks*)
                       (setf reserved t)
+                      (push reservation *held-advisory-file-locks*)
                       (return-from %open-owned-advisory-file-lock
                         (values stream identity fd deadline reservation)))
-                 (unless reserved (close stream :abort t)))))
+                 (unless (and reserved
+                              (find stream *held-advisory-file-locks*
+                                    :key #'%held-advisory-file-lock-stream :test #'eq))
+                   (close stream :abort t)))))
             ((member :retained (%held-advisory-file-lock-owners held-lock))
              (error "A retained advisory lock for this file is already held in this process."))
             ((member sb-thread:*current-thread*
