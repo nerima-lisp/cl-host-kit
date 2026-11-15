@@ -637,21 +637,28 @@
             (sb-thread:terminate-thread worker)
             (sb-thread:join-thread worker :default nil))
           (release-file-lock lock)))))
-  (it "keeps a strong registry reference to its owned stream until release"
+  (it "keeps its owned stream alive after the file-lock reference is discarded"
     (with-scratch-directory (scratch)
-      (let* ((target (merge-pathnames "owned.lock" scratch))
-             (lock (try-acquire-file-lock target))
-             (reservation (host-kit::file-lock-reservation lock)))
-        (unwind-protect
-             (progn
-               (expect (host-kit::%held-advisory-file-lock-stream reservation)
-                       :to-be (file-lock-stream lock))
-               (sb-ext:gc :full t)
-               (expect (%child-lock-exit-code target) :to-equal 1)
-               (release-file-lock lock)
-               (expect (host-kit::%held-advisory-file-lock-stream reservation) :to-be nil)
-               (expect (%child-lock-exit-code target) :to-equal 0))
-          (release-file-lock lock)))))
+      (let ((target (merge-pathnames "owned.lock" scratch))
+            (reservation nil))
+        (multiple-value-bind (weak-lock weak-stream)
+            (sb-thread:join-thread
+             (sb-thread:make-thread (lambda () (%retained-lock-weak-references target))))
+          (unwind-protect
+               (progn
+                 (sb-ext:gc :full t)
+                 (setf reservation (host-kit::%held-file-lock-for-path target))
+                 (expect (sb-ext:weak-pointer-value weak-lock) :to-be nil)
+                 (expect (open-stream-p (sb-ext:weak-pointer-value weak-stream)) :to-be t)
+                 (expect (host-kit::%held-advisory-file-lock-stream reservation)
+                         :to-be (sb-ext:weak-pointer-value weak-stream))
+                 (expect (%child-lock-exit-code target) :to-equal 1))
+            (when reservation
+              (release-file-lock
+               (host-kit::%make-file-lock
+                (host-kit::%held-advisory-file-lock-stream reservation) reservation)))))
+        (expect (host-kit::%held-advisory-file-lock-stream reservation) :to-be nil)
+        (expect (%child-lock-exit-code target) :to-equal 0))))
   (it "keeps the next supplied-stream owner locked after the old scope retires"
     (with-scratch-directory (scratch)
       (let ((target (merge-pathnames "supplied-handoff.lock" scratch)))
@@ -706,6 +713,173 @@
                 (sb-thread:signal-semaphore return-second)
                 (dolist (thread (list old-thread new-thread))
                   (when thread (sb-thread:join-thread thread)))))))))))
+
+
+(defun %retained-lock-weak-references (target)
+  (let ((lock (try-acquire-file-lock target)))
+    (values (sb-ext:make-weak-pointer lock)
+            (sb-ext:make-weak-pointer (file-lock-stream lock)))))
+
+(defun %owned-shared-scope-outcome (target creator-abort-p borrower-abort-p)
+  (with-open-file (borrowed target :direction :io :if-exists :overwrite)
+    (let ((ready (sb-thread:make-semaphore :count 0))
+          (finish (sb-thread:make-semaphore :count 0))
+          (worker nil) (owned nil) (creator-error nil) (borrower-error nil)
+          (creator-condition (make-condition 'simple-error :format-control "creator failed"))
+          (borrower-condition (make-condition 'simple-error :format-control "borrower failed")))
+      (unwind-protect
+           (progn
+             (handler-case
+                 (call-with-file-lock
+                  (lambda (stream)
+                    (setf owned stream)
+                    (write-string "changed!" stream)
+                    (setf worker
+                          (sb-thread:make-thread
+                           (lambda ()
+                             (handler-case
+                                 (call-with-advisory-file-lock
+                                  (lambda (other)
+                                    (declare (ignore other))
+                                    (sb-thread:signal-semaphore ready)
+                                    (%lock-test-wait finish)
+                                    (when borrower-abort-p (error borrower-condition)))
+                                  borrowed :mode :shared)
+                               (host-operation-failed (condition)
+                                 (setf borrower-error (host-operation-failed-reason condition)))))))
+                    (%lock-test-wait ready)
+                    (when creator-abort-p (error creator-condition)))
+                  target :mode :shared)
+               (host-operation-failed (condition)
+                 (setf creator-error (host-operation-failed-reason condition))))
+             (expect (open-stream-p owned) :to-be t)
+             (expect (%child-lock-exit-code target) :to-equal 1)
+             (sb-thread:signal-semaphore finish)
+             (sb-thread:join-thread worker)
+             (expect (open-stream-p owned) :to-be nil)
+             (expect (%child-lock-exit-code target) :to-equal 0)
+             (expect creator-error :to-be (and creator-abort-p creator-condition))
+             (expect borrower-error :to-be (and borrower-abort-p borrower-condition))
+             ;; The caller's descriptor remains open until these observations end.
+             (expect (read-line borrowed) :to-equal
+                     (if creator-abort-p "original" "changed!")))
+        (sb-thread:signal-semaphore finish)
+        (when worker (sb-thread:join-thread worker))))))
+
+(cl-weave:describe-sequential "pathname scoped lock compatibility"
+  (it "waits for another thread's pathname scope before opening and acquiring"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "waiting.lock" scratch))
+            (attempted (sb-thread:make-semaphore :count 0))
+            (worker nil))
+        (unwind-protect
+             (progn
+               (call-with-file-lock
+                (lambda (stream)
+                  (declare (ignore stream))
+                  (setf worker
+                        (sb-thread:make-thread
+                         (lambda ()
+                           (sb-thread:signal-semaphore attempted)
+                           (handler-case
+                               (call-with-file-lock (lambda (other) (declare (ignore other)) :acquired)
+                                                    target :wait t)
+                             (host-operation-failed () :rejected)))))
+                  (%lock-test-wait attempted)
+                  (expect (sb-thread:join-thread worker :timeout 0.05 :default :waiting)
+                          :to-equal :waiting)
+                  (expect (%child-lock-exit-code target) :to-equal 1))
+                target)
+               (expect (sb-thread:join-thread worker) :to-equal :acquired))
+          (when worker (sb-thread:join-thread worker))))))
+  (it-each ((nil nil :rejected) (t 0.05 :timed-out))
+      "keeps the current owner's OS lock after wait ~S timeout ~S rejection"
+      (wait timeout expected)
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "rejection.lock" scratch)))
+        (call-with-file-lock
+         (lambda (stream)
+           (declare (ignore stream))
+           (let ((worker
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (call-with-file-lock #'identity target :wait wait :timeout timeout)
+                        (file-lock-timeout (condition)
+                          (values :timed-out (file-lock-timeout-seconds condition)))
+                        (host-operation-failed () :rejected))))))
+             (multiple-value-bind (outcome seconds) (sb-thread:join-thread worker)
+               (expect outcome :to-equal expected)
+               (when timeout (expect seconds :to-equal timeout)))
+             (expect (%child-lock-exit-code target) :to-equal 1)))
+         target))))
+  (it "rejects a same-thread pathname scope without releasing the enclosing lock"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "nested-owned.lock" scratch)))
+        (call-with-file-lock
+         (lambda (stream)
+           (declare (ignore stream))
+           (signals host-operation-failed (call-with-file-lock #'identity target))
+           (expect (%child-lock-exit-code target) :to-equal 1))
+         target))))
+  (it-each ((nil nil) (t nil) (nil t))
+      "defers owned shared cleanup with creator-abort ~S borrower-abort ~S"
+      (creator-abort-p borrower-abort-p)
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "owned-shared.lock" scratch)))
+        (write-file-string "original" target)
+        (%owned-shared-scope-outcome target creator-abort-p borrower-abort-p))))
+  (it "discards abnormal buffered output and preserves the original callback failure"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "abort-error.lock" scratch))
+             (original (symbol-function 'host-kit::%release-advisory-file-lock))
+             (primary (make-condition 'simple-error :format-control "callback failed"))
+             (secondary (make-condition 'simple-error :format-control "unlock cleanup failed"))
+             (observed nil) (owned nil))
+        (write-file-string "original" target)
+        (with-function-redefinition
+            ('host-kit::%release-advisory-file-lock
+             (lambda (fd start) (funcall original fd start) (error secondary)))
+          (handler-case
+              (call-with-file-lock
+               (lambda (stream)
+                 (setf owned stream)
+                 (write-string "changed!" stream)
+                 (error primary))
+               target)
+            (host-operation-failed (condition)
+              (setf observed (host-operation-failed-reason condition)))))
+        (expect observed :to-be primary)
+        (expect (read-file-string target) :to-equal "original")
+        (expect (open-stream-p owned) :to-be nil)
+        (expect (%child-lock-exit-code target) :to-equal 0))))
+  (it "discards abnormal buffered output after a nonlocal exit"
+    (with-scratch-directory (scratch)
+      (let ((target (merge-pathnames "abort-throw.lock" scratch)))
+        (write-file-string "original" target)
+        (expect (catch 'abort-scope
+                  (call-with-file-lock
+                   (lambda (stream)
+                     (write-string "changed!" stream)
+                     (throw 'abort-scope :aborted))
+                   target))
+                :to-equal :aborted)
+        (expect (read-file-string target) :to-equal "original")
+        (expect (%child-lock-exit-code target) :to-equal 0)))))
+
+
+(cl-weave:describe-sequential "pathname scoped lock compatibility cleanup"
+  (it "preserves a shared borrower's callback failure after final cleanup fails"
+    (with-scratch-directory (scratch)
+      (let* ((target (merge-pathnames "borrower-cleanup.lock" scratch))
+             (original (symbol-function 'host-kit::%release-advisory-file-lock)))
+        (write-file-string "original" target)
+        (with-function-redefinition
+            ('host-kit::%release-advisory-file-lock
+             (lambda (fd start)
+               (funcall original fd start)
+               (error "final cleanup failed")))
+          (%owned-shared-scope-outcome target nil t))))))
 
 
 
