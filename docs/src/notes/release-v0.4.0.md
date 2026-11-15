@@ -5,8 +5,11 @@ Applications can retain an exclusive advisory file lock across operations with
 and release it with `release-file-lock`. `file-lock-held-by-other-process-p`
 queries whether another process holds a conflicting lock without retaining one.
 Local queries and rejected duplicate acquisitions preserve the registered lock.
-Release flushes metadata before unlocking and retires the reservation even if
-I/O fails, reporting the first error to the caller.
+Scoped acquisition of a locally retained lock is rejected before opening another
+descriptor. The library keeps the owned stream alive until explicit release.
+Release flushes metadata before unlocking and closing the stream, leaving the
+lock file on disk. If I/O fails, release still attempts cleanup and reports the
+first error to the caller.
 
 POSIX locks remain process-owned. Callers must not open or close another stream
 for the same inode while a lock is held. Locks are advisory, and reliable

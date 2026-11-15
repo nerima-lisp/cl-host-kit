@@ -518,9 +518,11 @@ locks.
   provide coordination. A non-NIL `timeout` bounds `wait` with a monotonic
   deadline and signals `file-lock-timeout` on expiry. Nested scopes on the same
   stream are reentrant: only the outermost scope releases the POSIX lock.
-  POSIX record locks belong to the process, so a nested scope for the same file
-  must use that original stream; do not open or close another stream for the
-  file while a lock scope is active.
+  POSIX record locks belong to the process. Within one thread, a nested scope
+  for the same file must use the original stream; do not open or close another
+  stream for the file while a lock scope is active. A retained lock for the inode rejects a
+  scoped acquisition with `host-operation-failed`, regardless of `wait` or
+  `timeout`.
   Repositioning `stream`
   in `thunk` does not change the locked range; the stream retains its final
   callback position after the lock is released.
@@ -529,15 +531,19 @@ locks.
 - **`(call-with-file-lock thunk pathspec &key (wait t) timeout (mode :exclusive))`** — Opens `pathspec`
   for non-destructive I/O, creating an absent file, acquires the advisory lock from byte zero through EOF,
   calls `thunk` with the open stream, then releases and closes it on every exit path. Options have the same
-  semantics as `call-with-advisory-file-lock`. Each call owns a descriptor; for nested locking on the same
-  file, use `call-with-advisory-file-lock` with a supplied stream.
+  semantics as `call-with-advisory-file-lock` for locks held by other processes.
+  A lock already registered in this process signals `host-operation-failed`
+  before opening a descriptor, even with `wait` true or `mode :shared`. Each
+  call owns a descriptor; nested locking must use `call-with-advisory-file-lock`
+  with the original stream.
 - **`(with-file-lock (stream pathspec &key (wait t) timeout (mode :exclusive)) &body body)`** — Lexically
   scoped macro form for `call-with-file-lock`; binds the opened, locked stream in `body` and preserves all
   body values.
 - **`file-lock`** — An exclusive whole-file advisory lock retained until explicit
   release or process exit. POSIX record locks belong to the process: do not open
   or close another stream for the same inode while holding the lock. The scoped
-  APIs and retained locks share the process ownership registry.
+  APIs and retained locks share the process ownership registry, which keeps the
+  owned stream reachable until release.
 - **`(try-acquire-file-lock pathspec &key (mode #o600))`** — Return a `file-lock`
   immediately, or NIL when another process holds a conflicting lock. Create an
   absent file with `mode` access bits, subject to umask; preserve existing file
@@ -547,13 +553,14 @@ locks.
   failures also signal `host-operation-failed`.
 - **`(file-lock-stream lock)`** — Return the owned UTF-8 character stream,
   initially positioned at byte zero, for reading or writing lock metadata.
-  Opening the lock preserves its contents. Replacing metadata requires
-  positioning the stream and truncating any old trailing content. Flush metadata
-  before another process reads it. Do not close the stream directly or use it
-  after release.
+  Opening the lock preserves its contents. Writes begin at the current stream
+  position and overwrite existing content without truncating trailing bytes.
+  Flush metadata before another process reads it. Do not close the stream
+  directly or use it after release.
 - **`(release-file-lock lock)`** — Flush metadata while locked, then release the
   lock and close its stream, returning T once and NIL on subsequent calls. Any
-  thread may release it. On I/O failure, cleanup still attempts to unlock and
+  thread may release it. Release leaves the lock file on disk. On I/O failure,
+  cleanup still attempts to unlock and
   close the stream and retires the reservation; the first error is reported as
   `host-operation-failed`.
 - **`(file-lock-held-by-other-process-p pathspec)`** — Query a conflicting
