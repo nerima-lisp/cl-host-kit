@@ -530,7 +530,10 @@ locks.
   scoped macro form of `call-with-advisory-file-lock`.
 - **`(call-with-file-lock thunk pathspec &key (wait t) timeout (mode :exclusive))`** — Opens `pathspec`
   for non-destructive I/O, creating an absent file, acquires the advisory lock from byte zero through EOF,
-  calls `thunk` with the open stream, then releases and closes it on every exit path. Options have the same
+  calls `thunk` with the open stream, then ends its ownership on every exit path.
+  The callback must not reuse the stream after returning. If another local
+  shared scope remains, the owned descriptor closes when the last shared owner
+  exits. Options have the same
   semantics as `call-with-advisory-file-lock` for locks held by other processes.
   A lock already registered in this process signals `host-operation-failed`
   before opening a descriptor, even with `wait` true or `mode :shared`. Each

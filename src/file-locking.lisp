@@ -234,7 +234,9 @@ binding, so this scope does not fit DEFINE-WITH-MACRO's fresh-binding shape."
   "Call THUNK while holding a MODE advisory lock for PATHSPEC.
 PATHSPEC is opened for non-destructive I/O, creating an absent regular file.
 The lock covers the byte range from zero through EOF. THUNK receives the open
-stream, and its values are preserved. The owned stream closes on every exit.
+stream, and its values are preserved. The callback must not reuse the stream
+after returning. The owned stream closes when the last local shared owner
+retires, including on nonlocal exits.
 A locally registered inode is rejected before opening another descriptor;
 use the original supplied stream for supported scoped nesting."
   (check-type thunk function)
